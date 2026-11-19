@@ -30,6 +30,21 @@ import embodiment as EM  # noqa: E402
 import parse_scene as PS  # noqa: E402
 
 
+def suggest_port(simdir):
+    """给 Web UI 建议一个端口。
+
+    端口是**按测试目录固定分配**的（见根 README）：证据目录 test1→8091、test2→8092，
+    新开 testN→809N。不在 evidence/testN 下的目录退回 8080。原来这里写死 8112，
+    和 README 的分配表冲突，照着打印出来的命令跑会开到没登记过的端口上。
+    """
+    head = os.path.basename(os.path.dirname(os.path.abspath(simdir)))
+    d = os.path.basename(os.path.abspath(simdir))
+    for name in (head, d):
+        if name.startswith("test") and name[4:].isdigit():
+            return 8090 + int(name[4:])
+    return 8080
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--blend", required=True)
@@ -113,7 +128,8 @@ def main():
               f"初始状态 {len(ist['states'])} 个，验收率 {ist.get('acceptance_rate')}")
     elif a.env_tests:
         print("== 跳过环境级验收：谓词里没有 on(obj, support)，oracle 只支持 pick-place 模板")
-    print(f"\nWeb UI:  MUJOCO_GL=egl {PY} {os.path.join(os.path.dirname(HERE), 'web_ui.py')} --testdir {a.out} --port 8112")
+    print(f"\nWeb UI:  MUJOCO_GL=egl {PY} {os.path.join(os.path.dirname(HERE), 'web_ui.py')} "
+          f"--testdir {a.out} --port {suggest_port(a.out)}")
 
 
 if __name__ == "__main__":

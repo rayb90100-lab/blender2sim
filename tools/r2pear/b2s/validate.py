@@ -117,6 +117,11 @@ def read_video(path, W, H):
     return a.reshape(-1, H, W, 3)
 
 
+def ffmpeg_ready():
+    """ffmpeg 是否可用。缺它时 V3 无法出片，但 V1/V2 仍然有效——不能因此整条命令崩掉。"""
+    return shutil.which(FF) is not None or os.path.isabs(FF) and os.access(FF, os.X_OK)
+
+
 def v3_compare(spec, demo, simdir, videos_dir):
     import mujoco
     W, H = spec["render"]["width"], spec["render"]["height"]
@@ -184,12 +189,33 @@ def main():
         for p in r2["predicates"]:
             print("   ", p)
         print("   与 blend 参考轨迹:", r2["vs_blend_reference"])
-        if not a.no_video and a.videos:
+        # V3 出片要 ffmpeg。缺了不该让 V1/V2 的结果一起丢掉（原来会抛 FileNotFoundError，
+        # 且 validate.json 根本没写成），所以这里先判可用性，缺了明确记进报告。
+        if a.no_video:
+            rep["V3_compare"] = {"skipped": "--no-video"}
+        elif not a.videos:
+            rep["V3_compare"] = {"skipped": "没给 --videos"}
+        elif not ffmpeg_ready():
+            rep["V3_compare"] = {"skipped": f"找不到 ffmpeg（FFMPEG={FF}）；"
+                                            "装一个或 export FFMPEG=/path/to/ffmpeg 后重跑"}
+        else:
             rep["V3_compare"] = v3_compare(spec, demo, vd, a.videos)
             print("V3 对照:", rep["V3_compare"])
+        if "skipped" in rep.get("V3_compare", {}):
+            print("V3 对照: 跳过 —", rep["V3_compare"]["skipped"])
     else:
         rep["V2_replay"] = {"skipped": "没有关节轨迹（需先 retarget）"}
-    dump_json(rep, os.path.join(vd, "validate.json"))
+    # 没重出 V3 时保留上一轮已有的记录，避免一次 --no-video 就把证据里的对照视频信息抹掉
+    vp = os.path.join(vd, "validate.json")
+    if "skipped" in rep.get("V3_compare", {}) and os.path.exists(vp):
+        try:
+            old = json.load(open(vp))
+            if isinstance(old.get("V3_compare"), dict) and "skipped" not in old["V3_compare"]:
+                rep["V3_compare"] = old["V3_compare"]
+                print("V3 对照: 沿用上一轮已有的记录（未重新生成）")
+        except (OSError, ValueError):
+            pass
+    dump_json(rep, vp)
 
 
 if __name__ == "__main__":

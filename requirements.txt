@@ -1,6 +1,6 @@
 # blender2sim 依赖 —— 版本组合是实测锁死的，不要随手升级。
 #
-# 为什么锁（详见 docs/DEVELOPMENT_LOG.md §2–5）：
+# 为什么锁：
 #   python 3.11   bpy 只发 cp311 wheel，Python 版本被它决定
 #   numpy <2      bpy 要求；装了 numpy 2.x 的包（如 rerun-sdk）会把它顶上去
 #   torch 2.11    MoGe 的 flex_gemm 需要 triton>=3.2，torch 2.11 自带 triton 3.6

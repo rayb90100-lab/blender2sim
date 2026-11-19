@@ -1,13 +1,15 @@
 # b2s：任意 .blend → PEAR 可交互 MuJoCo 环境
 
 ```bash
-cd /home/ubuntu/workstation/RoboLab && source setup_env.sh
-PY=/home/ubuntu/mambaforge/envs/real2gym/bin/python
-MUJOCO_GL=egl $PY tools/r2pear/b2s/run.py --blend <X.blend> --out <simdir> [--config b2s_config.json] [--env-tests]
-MUJOCO_GL=egl $PY tools/r2pear/web_ui.py --testdir <simdir> --port 8112      # 交互界面（MuJoCo + 原 blend 精修视图）
+cd <repo> && source setup_env.sh          # 设 B2S_PYTHON / ROBOLAB_DATA / MENAGERIE
+$B2S_PYTHON tools/r2pear/b2s/run.py --blend <X.blend> --out <simdir> [--config b2s_config.json] [--env-tests]
+MUJOCO_GL=egl $B2S_PYTHON tools/r2pear/web_ui.py --testdir <simdir> --port <port>   # 交互界面（MuJoCo + 原 blend 精修视图）
 ```
 
-`--env-tests` 会再跑反向对照、扰动扫描和初始状态采样，大约需要 2 分钟。产物目录和 `Real2Gym/tests/testN` 的布局一致，`env.py`（PEAR StatefulEnv）、`oracle.py` 和 `web_ui.py` 都可以直接使用。
+端口按测试目录固定分配：`evidence/test1` → 8091、`evidence/test2` → 8092，新开 `test3` → 8093。
+`run.py` 跑完会把该用哪个端口打印出来；启动前先 `ss -ltnp | grep :8092` 看是否已被占用。
+
+`--env-tests` 会再跑反向对照、扰动扫描和初始状态采样，大约需要 2 分钟。产物目录布局与 PEAR 的 `tests/testN` 一致，`env.py`（PEAR StatefulEnv）、`oracle.py` 和 `web_ui.py` 都可以直接使用。
 
 ## 流水线
 
@@ -34,7 +36,7 @@ MUJOCO_GL=egl $PY tools/r2pear/web_ui.py --testdir <simdir> --port 8112      # �
 | DROID（blend 骨架 + parquet） | ✅ ep71 端到端验证 |
 | UMI（`replay_buffer.zarr`） | ⚠️ 换算已单测；**没在真实数据上验证**，TCP 轴向按 UMI 仓库约定（`UMI_TCP_TO_PINCH`） |
 | EgoDex（hdf5，ARKit y 向上） | ⚠️ 手→夹爪换算和轴变换已单测；**没在真实数据上验证** |
-| 通用 npz（`ee_world` + `g`） | ✅ 用 ep71 末端轨迹冒充 UMI，重定向后回放成功（`GLB/test1/sim_synth_umi`） |
+| 通用 npz（`ee_world` + `g`） | ✅ 用 ep71 末端轨迹冒充 UMI，重定向后回放成功（本次未随仓库发布，需自己用 `sources.py` 生成同格式 npz） |
 
 本机 real2gym 环境**没装 zarr / h5py**。装之前要先确认不会把 numpy 顶到 2.x，之前装 rerun 就踩过这个坑。
 
