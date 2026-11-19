@@ -141,22 +141,26 @@ huggingface-cli download cadene/droid_1.0.1 --repo-type dataset \
   --include "*episode_000071*" --local-dir $ROBOLAB_DATA/datasets/droid
 ```
 
-**场景文件不在仓库里**（二进制，7.8 MB），放在 release 资产里：
+**场景文件不在仓库里**（二进制，7.4 MB），打包成 zip 放在 release 资产里：
 
 ```
 https://github.com/rayb90100-lab/blender2sim/releases/tag/v0.1.0-blends
 ```
 
-| 文件 | 大小 | SHA256 |
-|---|---|---|
-| `DROID_0071.blend` | 6.80 MB | `25838c75bec78e4e5b3eb3c14ca8c1f09b27c2e06a7086dfd180976ab9a4cf99` |
-| `UMI_ep68.blend` | 0.61 MB | `d9ffdae16a0c91c2668c9eef99291e8dbbb998f416fbfd41771801edf52e3658` |
+| 资产 | 内含 | 大小 | zip SHA256 | 解压后 .blend SHA256 |
+|---|---|---|---|---|
+| `DROID_0071.blend.zip` | `DROID_0071.blend` | 6.80 MB | `4cd1dd22abaed5b4c787986ab2a6bc52e8f2098db81739f0646ea4ade002479e` | `25838c75bec78e4e5b3eb3c14ca8c1f09b27c2e06a7086dfd180976ab9a4cf99` |
+| `UMI_ep68.blend.zip` | `UMI_ep68.blend` | 0.61 MB | `699922b6299200033c131f66677521bccc24b652735456cbe200c01ab8d18523` | `d9ffdae16a0c91c2668c9eef99291e8dbbb998f416fbfd41771801edf52e3658` |
 
-下载后直接跑：
+解压后直接跑：
 
 ```bash
+unzip DROID_0071.blend.zip
 $B2S_PYTHON tools/r2pear/b2s/run.py --blend DROID_0071.blend --out <simdir> --env-tests
 ```
+
+`.blend` 是 Blender 4.x 默认的 zstd 压缩格式（文件头 `28 b5 2f fd`），这是正常的，
+Blender 直接能打开，不需要额外处理。
 
 `DROID_0071.blend` 由 GPT 从 parquet + 三路视频生成（`extract.json` 里记着
 `blend: GLB/test1/DROID_0071.blend`）。**生成过程不在本仓库**，因此无法在此重新生成，
@@ -190,7 +194,7 @@ $B2S_PYTHON tools/umi_extract/extract_umi_episode.py \
 全库夹爪宽度四分位是 `[0.052, 0.055, 0.063, 0.081, 0.083, 0.083]` m ——
 绝大多数 episode 夹爪停在张开状态。出现过 < 30 mm 的**只有 ep68**（15 帧，最闭合 4.8 mm）。
 
-场景文件同样在 release 里：`UMI_ep68.blend`（0.61 MB，SHA256 见上）。
+场景文件同样在 release 里：`UMI_ep68.blend.zip`（0.61 MB，SHA256 见上）。
 它只含场景与演示者，不含机器人——具身是 `handheld_gripper`，走 `retarget.py` 重定向到 Panda。
 
 复跑验证（不需要原始数据，`evidence/` 里已有产物）：
