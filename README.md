@@ -158,10 +158,9 @@ https://github.com/rayb90100-lab/blender2sim/releases/tag/v0.1.0-blends
 $B2S_PYTHON tools/r2pear/b2s/run.py --blend DROID_0071.blend --out <simdir> --env-tests
 ```
 
-`DROID_0071.blend` 是工作区作者从 parquet + 三路视频重建的（`extract.json` 里记着
-`blend: GLB/test1/DROID_0071.blend`）。**重建脚本不在本仓库**——它属于已移除的旧路线
-（`74eb5b3` 之前的 `tools/droid_stage*.py`、`droid_augment*.py` 等），依赖 MoGe、sam2
-若干外部权重，未整理成可复现入口。所以这一环无法从原始数据集重新生成，只能取这个资产。
+`DROID_0071.blend` 由 GPT 从 parquet + 三路视频生成（`extract.json` 里记着
+`blend: GLB/test1/DROID_0071.blend`）。**生成过程不在本仓库**，因此无法在此重新生成，
+请直接用 release 里的文件。资产本身完整，`evidence/test1` 的全部结果都是基于它跑出来的。
 
 ### test2：UMI ep68
 
