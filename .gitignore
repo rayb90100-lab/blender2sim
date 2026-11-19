@@ -56,3 +56,34 @@ venv/
 local/
 # 内部文档（踩坑史 / 进度 / 移植清单）暂不公开
 docs/
+
+# 已移除的旧路线脚本（test1–test8 时期）。仍留在本地，但不进仓库。
+tools/build_stage1_blender.py
+tools/build_stage1_blender_v2.py
+tools/build_stage1_v3.py
+tools/stage1_pipeline.py
+tools/stage2_*.py
+tools/track_and_animate.py
+tools/droid_augment*.py
+tools/droid_fit_*.py
+tools/droid_ik_*.py
+tools/droid_media_validator.py
+tools/droid_refine_block_wrist.py
+tools/droid_stage*.py
+tools/droid_stress_*.py
+tools/droid_vision_probe.py
+tools/make_compare_video.py
+tools/make_smoke_video.py
+tools/r2pear/droid_calib_*.py
+tools/r2pear/droid_cams.py
+tools/r2pear/droid_refine_extrinsics.py
+tools/r2pear/droid_stage*.py
+tools/r2pear/export_droid.py
+tools/r2pear/merge_scene.py
+tools/r2pear/render_episode.py
+tools/r2pear/review_render.py
+tools/r2pear/stress.py
+tools/r2pear/stress_protocol.py
+tools/r2pear/sweep_contact.py
+tools/r2pear/check_demo_replay.py
+tools/r2pear/quality_gate.py

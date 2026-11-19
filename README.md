@@ -57,10 +57,17 @@ tools/r2pear/                核心管线
   oracle.py                  pick-place 解题器
   predicates.py              on / released / upright
   web_ui.py                  交互界面（EGL + MJPEG）
+  controller.py              位姿增量 → 关节指令
+  spec.py                    task_spec 读写
+  init_states.py             初始状态采样
+  sweep_params.py            单项扰动扫描
+  check_negatives.py         反向对照
   glb_scene.py               GLB → MuJoCo 静态场景（旁支，无机器人）
+  glb_extract.py             GLB 资产提取（bpy）
+  blender_live.py / blender_worker.py   旧式 Blender 渲染 worker
+tools/droid_common.py        机械臂模型加载 + 位姿工具（主链路依赖）
 tools/umi_extract/           UMI 数据集抽 episode
 tools/egodex/                EgoDex 数据集拉取
-tools/droid_*.py             DROID 数据集辅助
 
 evidence/                    可复现的证据（见下）
 ```
