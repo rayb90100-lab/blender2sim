@@ -54,3 +54,5 @@ venv/
 .env.*
 !.env.example
 local/
+# 内部文档（踩坑史 / 进度 / 移植清单）暂不公开
+docs/

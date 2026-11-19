@@ -63,8 +63,9 @@ tools/egodex/                EgoDex 数据集拉取
 tools/droid_*.py             DROID 数据集辅助
 
 evidence/                    可复现的证据（见下）
-docs/                        踩坑史与进度
 ```
+
+内部文档（几轮踩坑的完整记录、进度交接、移植清单）暂不随仓库发布。
 
 ## 证据
 
@@ -115,19 +116,47 @@ $B2S_PYTHON tools/r2pear/b2s/tests/test_b2s.py
 
 ## 依赖版本
 
-组合是实测锁死的，升级前先读 `docs/DEVELOPMENT_LOG.md §2–5`：
+组合是实测锁死的，不要随手升级（原因见下）：
 
 ```
-python 3.11      bpy 只发 cp311 wheel
-numpy 1.26.4     bpy 要求 <2.0
-torch 2.11.0     flex_gemm 需要 triton>=3.2
+python 3.11      bpy 只发 cp311 wheel，Python 版本被它决定
+numpy 1.26.4     bpy 要求 <2.0；装了 numpy 2.x 的包会把它顶上去
+torch 2.11.0     flex_gemm 需要 triton>=3.2（torch 2.11 自带 3.6）
 bpy 4.5.4 LTS
 mujoco 3.3.7
 ```
 
 ## 移植
 
-换服务器要改的东西见 [`docs/PORTING.md`](docs/PORTING.md)。
+换服务器要改的只有几个环境变量，`source setup_env.sh` 后按提示设：
+
+| 变量 | 含义 |
+|---|---|
+| `B2S_PYTHON` | 装了 bpy + mujoco + torch 的解释器 |
+| `ROBOLAB_DATA` | 权重 / 数据集 / 缓存的根目录 |
+| `MENAGERIE` | mujoco_menagerie 路径（需要 `franka_emika_panda` 和 `robotiq_2f85`） |
+| `FFMPEG` | ffmpeg 可执行文件（`setup_env.sh` 会自动探测） |
+
+**仓库里不含**外部资产：menagerie 机器人模型、MoGe/sam2 权重、以及 DROID/UMI/EgoDex
+数据集都要自己准备。缺 menagerie 会报
+`ValueError: ParseXML: Error opening file ... panda_nohand.xml`。
+
+### 装完自查
+
+不需要数据集，这三条应该全过：
+
+```bash
+source setup_env.sh
+
+# ① 单测（4 个：关节符号修复 / 人手换算 / ARKit 轴 / 形状分类）
+$B2S_PYTHON tools/r2pear/b2s/tests/test_b2s.py
+
+# ② 端到端回放（期望 ok=true / success=true）
+$B2S_PYTHON tools/r2pear/b2s/validate.py --simdir evidence/test1/sim
+
+# ③ Web UI
+MUJOCO_GL=egl $B2S_PYTHON tools/r2pear/web_ui.py --testdir evidence/test1/sim --port 8091
+```
 
 ## 致谢
 
