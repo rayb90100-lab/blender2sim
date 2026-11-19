@@ -1,0 +1,129 @@
+{
+ "task": {
+  "obj": "green_cylinder",
+  "support": "yellow_rectangular_block"
+ },
+ "n_per_axis": 9,
+ "params": {
+  "target.dx": {
+   "ok_range": [
+    0.0,
+    0.0
+   ],
+   "all_ok_values": [
+    -0.1,
+    -0.075,
+    -0.05,
+    0.0,
+    0.05,
+    0.075,
+    0.1
+   ],
+   "failures": {
+    "C_oracle_failed": 0.025
+   }
+  },
+  "target.dy": {
+   "ok_range": [
+    0.0,
+    0.0
+   ],
+   "all_ok_values": [
+    -0.1,
+    -0.075,
+    0.0,
+    0.075,
+    0.1
+   ],
+   "failures": {
+    "C_oracle_failed": 0.05
+   }
+  },
+  "target.dyaw_deg": {
+   "ok_range": [
+    -60.0,
+    60.0
+   ],
+   "all_ok_values": [
+    -60.0,
+    -45.0,
+    -30.0,
+    -15.0,
+    0.0,
+    15.0,
+    30.0,
+    45.0,
+    60.0
+   ],
+   "failures": {}
+  },
+  "tower.dx": {
+   "ok_range": [
+    0.0,
+    0.0
+   ],
+   "all_ok_values": [
+    -0.08,
+    -0.06,
+    -0.04,
+    0.0,
+    0.06,
+    0.08
+   ],
+   "failures": {
+    "C_oracle_failed": 0.02,
+    "A_not_at_rest": 0.04
+   }
+  },
+  "tower.dy": {
+   "ok_range": [
+    0.0,
+    0.0
+   ],
+   "all_ok_values": [
+    -0.08,
+    0.0,
+    0.08
+   ],
+   "failures": {
+    "C_oracle_failed": 0.06
+   }
+  },
+  "tower.dyaw_deg": {
+   "ok_range": [
+    -60.0,
+    60.0
+   ],
+   "all_ok_values": [
+    -60.0,
+    -45.0,
+    -30.0,
+    -15.0,
+    0.0,
+    15.0,
+    30.0,
+    45.0,
+    60.0
+   ],
+   "failures": {}
+  },
+  "table_dz": {
+   "ok_range": [
+    -0.05,
+    0.06
+   ],
+   "all_ok_values": [
+    -0.05,
+    -0.0363,
+    -0.0225,
+    -0.0088,
+    0.005,
+    0.0188,
+    0.0325,
+    0.0462,
+    0.06
+   ],
+   "failures": {}
+  }
+ }
+}

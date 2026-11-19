@@ -1,0 +1,64 @@
+{
+  "source_zip": "/media/data1/RoboLab_data/downloads/cup_in_the_lab.zarr.zip",
+  "source_url": "https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip",
+  "dataset": "UMI cup_in_the_wild (zarr_datasets)",
+  "episode_index": 68,
+  "frame_range": [
+    49453,
+    50377
+  ],
+  "n_frames": 924,
+  "fields": [
+    "data/robot0_eef_pos",
+    "data/robot0_eef_rot_axis_angle",
+    "data/robot0_gripper_width",
+    "data/camera0_rgb"
+  ],
+  "arm": "single (robot0_*)",
+  "gripper_width_m": {
+    "min": 0.00480601005256176,
+    "max": 0.08259999752044678,
+    "mean": 0.07325851917266846
+  },
+  "gripper_closed_frames_lt_30mm": 15,
+  "g": {
+    "min": 0.0,
+    "max": 0.9399248957633972
+  },
+  "conventions": {
+    "UMI_MAX_APERTURE": 0.08,
+    "UMI_TCP_TO_PINCH": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "note": "与 tools/r2pear/b2s/sources.py 一致；UMI TCP 轴向仍未在真实数据上验证"
+  },
+  "camera_note": "camera0_rgb 已抽取 (924, 224, 224, 3)",
+  "fps_note": "zarr 里没有帧率字段；UMI 手腕相机是 GoPro 录制，按 30 fps 写 mp4（假设）",
+  "camera": {
+    "key": "data/camera0_rgb",
+    "shape": [
+      924,
+      224,
+      224,
+      3
+    ],
+    "codec_in_source": "JPEG-XL (imagecodecs_jpegxl, level 99)",
+    "view": "手腕/夹爪第一视角（鱼眼）",
+    "streams_in_this_zarr": 1,
+    "note": "本 zarr 只有 camera0_rgb 一路；UMI 硬件论文里是夹爪两侧各一台 GoPro，这份发布只保留了其中一路"
+  }
+}

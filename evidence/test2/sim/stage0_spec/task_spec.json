@@ -1,0 +1,309 @@
+{
+ "schema_version": 1,
+ "task_id": "umi_ep68",
+ "instruction": "Pick up the blue cup and place it on the table.",
+ "source": {
+  "blend": "/home/ubuntu/workstation/RoboLab/GLB/test2/UMI_ep68.blend",
+  "generator": "tools/r2pear/b2s (blend → sim)",
+  "dataset": null,
+  "embodiment": "handheld_gripper",
+  "gripper_source": "blend:UMI  |  记录的末端坐标系 · 6DoF.g",
+  "ee_source": "手持夹爪根对象 'UMI  |  记录的末端坐标系 · 6DoF' × root_to_pinch"
+ },
+ "frame": "机器人基座系，z 向上，单位 m",
+ "robot": {
+  "model": "panda_nohand + robotiq_2f85 (menagerie)",
+  "mount_yaw_deg": -45.0,
+  "init_qpos": [
+   2.0047331595489193,
+   -1.7107344363937487,
+   -1.8294898298642568,
+   -1.7974676672066254,
+   -0.7452530745984856,
+   1.6695982879246316,
+   -1.7719037310122938
+  ],
+  "init_gripper": 0.20574623346328735,
+  "T_world_base": [
+   [
+    6.123233995736766e-17,
+    1.0,
+    0.0,
+    0.649
+   ],
+   [
+    -1.0,
+    6.123233995736766e-17,
+    0.0,
+    0.8420000000000001
+   ],
+   [
+    0.0,
+    0.0,
+    1.0,
+    0.13
+   ],
+   [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  ]
+ },
+ "table": {
+  "top_z": -0.0003882000000000052,
+  "center_xy": [
+   0.6512199000000001,
+   -0.11716369999999998
+  ],
+  "size_xy": [
+   1.123040052589991,
+   0.7000000327797707
+  ],
+  "yaw_rad": 0.013457205541367534,
+  "thickness": 0.024,
+  "apron_m": 0.0,
+  "height_m": 0.75,
+  "legs": false,
+  "status": "blend 对象 'Main table | 浅木工作台 · tabletop'（作者局部系）",
+  "legs_note": "blend 自带桌下结构；桌面以下不建腿，避免凭空多出障碍"
+ },
+ "objects": {
+  "mug_hollow_glazed_ceramic": {
+   "shape": "cylinder",
+   "size": [
+    0.026362001771262984,
+    0.048537
+   ],
+   "center": [
+    0.4626745001310616,
+    0.14773967634817298,
+    0.022880866245381493
+   ],
+   "yaw_rad": -0.050248038878567776,
+   "rgba": [
+    0.5490196119891921,
+    0.7294117703237838,
+    0.8392156832360868,
+    1.0
+   ],
+   "density": 600.0,
+   "friction": [
+    1.0,
+    0.005,
+    0.0001
+   ],
+   "solref": [
+    0.01,
+    1.0
+   ],
+   "role": "target",
+   "blend_name": "Mug · hollow glazed ceramic",
+   "shape_evidence": "b2s_config 指定",
+   "color_source": "材质 'Cup · glazed exterior' 线性色→sRGB"
+  }
+ },
+ "static": [],
+ "cameras": {
+  "agentview": {
+   "mount": "world",
+   "pos": [
+    -0.42799999999999994,
+    -0.48899999999999993,
+    0.555
+   ],
+   "quat_wxyz": [
+    0.7289555725110537,
+    0.4718414888406089,
+    -0.2695042885321665,
+    -0.41636140692495766
+   ],
+   "fovy_deg": 25.91789624565736,
+   "intrinsics": {
+    "fx": 625.7777777777778,
+    "fy": 625.7777777777778,
+    "cx": 255.5,
+    "cy": 143.5,
+    "width": 512,
+    "height": 288
+   },
+   "blend_camera": "00  工作台总览",
+   "source_camera": null
+  },
+  "wrist": {
+   "mount": "link7",
+   "pos": [
+    0.08622202752011948,
+    0.0009824085422812517,
+    0.09126678125398618
+   ],
+   "quat_wxyz": [
+    -0.0020501366317749402,
+    0.7009357250457744,
+    0.7131956359177997,
+    0.006073812818250741
+   ],
+   "fovy_deg": 14.362847146386475,
+   "intrinsics": {
+    "fx": 1142.8571623198843,
+    "fy": 1142.8571623198843,
+    "cx": 257.2391104698181,
+    "cy": 142.04526460170746,
+    "width": 512,
+    "height": 288
+   },
+   "blend_camera": "01  Wrist · 拟合鱼眼",
+   "source_camera": null,
+   "rigid_spread_mm": 0.13216406061136587
+  }
+ },
+ "render": {
+  "width": 512,
+  "height": 288
+ },
+ "predicate_source": {
+  "derived_from": "演示终态的支撑关系（b2s/build_spec.final_supports）"
+ },
+ "success": [
+  {
+   "pred": "on",
+   "obj": "mug_hollow_glazed_ceramic",
+   "support": "table"
+  },
+  {
+   "pred": "released",
+   "obj": "mug_hollow_glazed_ceramic"
+  },
+  {
+   "pred": "upright",
+   "obj": "mug_hollow_glazed_ceramic",
+   "max_tilt_deg": 15.0
+  }
+ ],
+ "step_budget": {
+  "control_hz": 30,
+  "max_control_steps": 600,
+  "max_rounds": 25
+ },
+ "physics": {
+  "timestep": 0.002,
+  "object_solref": [
+   0.01,
+   1.0
+  ],
+  "object_solimp": [
+   0.99,
+   0.999,
+   0.001,
+   0.5,
+   2
+  ],
+  "noslip_iterations": 0,
+  "noslip_note": "0：避免「圆柱站在方块顶上」类退化接触的不衰减极限环（DEVELOPMENT_LOG §63.5b）。"
+ },
+ "blend_binding": {
+  "objects": {
+   "mug_hollow_glazed_ceramic": {
+    "blend_name": "Mug · hollow glazed ceramic",
+    "cloc": [
+     -3.7039332824910323e-10,
+     3.013700069975707e-11,
+     -0.023568500000000006
+    ]
+   }
+  },
+  "cameras": {
+   "agentview": "00  工作台总览",
+   "wrist": "01  Wrist · 拟合鱼眼"
+  },
+  "robot": null,
+  "hide": [
+   "00  工作台总览",
+   "01  Wrist · 拟合鱼眼",
+   "196 static landmarks · metric triangulation",
+   "Camera cage · strut",
+   "Camera cage · strut.001",
+   "Carriage · hex socket",
+   "Carriage · hex socket.001",
+   "Carriage · hex socket.002",
+   "Carriage · hex socket.003",
+   "Ceiling · light panel",
+   "Ceiling · recessed fixture",
+   "Ceiling · softbox",
+   "Fin · relief groove",
+   "Fin · relief groove.001",
+   "Fin · relief groove.002",
+   "Fin · relief groove.003",
+   "Fin · relief groove.004",
+   "Fin · relief groove.005",
+   "Fin · relief groove.006",
+   "Fin · relief groove.007",
+   "Fin · relief groove.008",
+   "Fin · relief groove.009",
+   "Fin · relief groove.010",
+   "Fin · relief groove.011",
+   "Fin · relief groove.012",
+   "Fin · relief groove.013",
+   "Fin · relief groove.014",
+   "Fin · relief groove.015",
+   "Fin · relief groove.016",
+   "Fin · relief groove.017",
+   "Fin · relief groove.018",
+   "Fin · relief groove.019",
+   "Fin · relief groove.020",
+   "Fin · relief groove.021",
+   "Finger · dark inner contact face",
+   "Finger · dark inner contact face.001",
+   "Glazing · horizontal stripe",
+   "GoPro · camera body",
+   "GoPro · fisheye front glass",
+   "GoPro · front display",
+   "GoPro · lens bezel",
+   "GoPro · lens surround",
+   "GoPro · optical frame | 估计手眼外参",
+   "GoPro · shutter",
+   "Grip · ribs",
+   "Grip · ribs.001",
+   "Grip · ribs.002",
+   "Grip · ribs.003",
+   "Grip · ribs.004",
+   "Handle · grip sleeve",
+   "Handle · structural core",
+   "Jaw housing · top bridge",
+   "Jaw rail · anodized spine",
+   "Jaw · white carriage",
+   "Jaw · white carriage.001",
+   "Laboratory · ceiling",
+   "Laboratory · light floor",
+   "Laboratory · rear wall",
+   "Laboratory · return wall",
+   "Laboratory · white column",
+   "Left  |  移动夹指",
+   "Mauve tray | 后桌方盒",
+   "Mug · ceramic loop handle",
+   "Orange flexible jaw · tapered fin",
+   "Orange flexible jaw · tapered fin.001",
+   "Palm · printed bracket",
+   "Rear partition · glass field",
+   "Rear partition · kick strip",
+   "Rear partition · silver mullion",
+   "Rear table | 深木工作台",
+   "Rear table | 深木工作台 · foot",
+   "Rear table | 深木工作台 · foot.001",
+   "Rear table | 深木工作台 · foot.002",
+   "Rear table | 深木工作台 · foot.003",
+   "Rear table | 深木工作台 · leg",
+   "Rear table | 深木工作台 · leg.001",
+   "Rear table | 深木工作台 · leg.002",
+   "Rear table | 深木工作台 · leg.003",
+   "Rear table | 深木工作台 · tabletop",
+   "Rear table | 深木工作台 · underside rail",
+   "Rear table | 深木工作台 · underside rail.001",
+   "Right  |  移动夹指",
+   "Saucer  |  蓝色杯碟",
+   "Tripod",
+   "UMI  |  记录的末端坐标系 · 6DoF"
+  ]
+ }
+}

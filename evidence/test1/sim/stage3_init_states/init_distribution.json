@@ -1,0 +1,64 @@
+{
+ "source": "b2s/init_dist.py ← stage3_init_states/param_sweep.json（sweep_params.py 单项实测）",
+ "task": {
+  "obj": "green_cylinder",
+  "support": "yellow_rectangular_block"
+ },
+ "groups": {
+  "target": {
+   "objects": [
+    "green_cylinder"
+   ],
+   "pivot": "green_cylinder"
+  },
+  "tower": {
+   "objects": [
+    "green_bridge_block",
+    "yellow_cube"
+   ],
+   "pivot": "yellow_cube"
+  }
+ },
+ "params": {
+  "target.dx": [
+   -0.009999999999999998,
+   0.009999999999999998
+  ],
+  "target.dy": [
+   -0.009999999999999998,
+   0.009999999999999998
+  ],
+  "target.dyaw_deg": [
+   -54.0,
+   54.0
+  ],
+  "tower.dx": [
+   -0.007999999999999998,
+   0.007999999999999998
+  ],
+  "tower.dy": [
+   -0.008000000000000002,
+   0.008000000000000002
+  ],
+  "tower.dyaw_deg": [
+   -54.0,
+   54.0
+  ],
+  "table_dz": [
+   -0.044500000000000005,
+   0.0545
+  ]
+ },
+ "seed": 0,
+ "target_n": 50,
+ "max_attempts": 600,
+ "range_note": {
+  "target.dx": "扫描区间退化为单点（步长 0.025 内即失败，失败原因 {'C_oracle_failed': 0.025}）→ ±0.01，靠逐样本验收剔除",
+  "target.dy": "扫描区间退化为单点（步长 0.025 内即失败，失败原因 {'C_oracle_failed': 0.05}）→ ±0.01，靠逐样本验收剔除",
+  "target.dyaw_deg": "实测通过区间 [-60, 60] 向内收 10%",
+  "tower.dx": "扫描区间退化为单点（步长 0.02 内即失败，失败原因 {'C_oracle_failed': 0.02, 'A_not_at_rest': 0.04}）→ ±0.008，靠逐样本验收剔除",
+  "tower.dy": "扫描区间退化为单点（步长 0.02 内即失败，失败原因 {'C_oracle_failed': 0.06}）→ ±0.008，靠逐样本验收剔除",
+  "tower.dyaw_deg": "实测通过区间 [-60, 60] 向内收 10%",
+  "table_dz": "实测通过区间 [-0.05, 0.06] 向内收 10%"
+ }
+}

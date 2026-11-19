@@ -1,0 +1,25 @@
+# blender2sim 依赖 —— 版本组合是实测锁死的，不要随手升级。
+#
+# 为什么锁（详见 docs/DEVELOPMENT_LOG.md §2–5）：
+#   python 3.11   bpy 只发 cp311 wheel，Python 版本被它决定
+#   numpy <2      bpy 要求；装了 numpy 2.x 的包（如 rerun-sdk）会把它顶上去
+#   torch 2.11    MoGe 的 flex_gemm 需要 triton>=3.2，torch 2.11 自带 triton 3.6
+#
+# 安装：pip install -r requirements.txt
+# 装完务必核对：python -c "import bpy, mujoco, numpy; print(bpy.app.version_string, mujoco.__version__, numpy.__version__)"
+
+bpy==4.5.4
+mujoco==3.3.7
+numpy==1.26.4
+scipy==1.17.1
+torch==2.11.0
+triton==3.6.0
+pillow==12.3.0
+opencv-python-headless>=4.10,<4.12
+zarr==2.18.2
+h5py==3.16.0
+
+# 可选：MoGe / sam2 走 vendor/ 里的源码树，不从这里装。
+
+# 测试
+pytest>=8

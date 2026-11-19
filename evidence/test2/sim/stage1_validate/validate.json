@@ -1,0 +1,59 @@
+{
+ "V1_settle": {
+  "objects": {
+   "mug_hollow_glazed_ceramic": {
+    "drift_mm": 0.4485348927153693,
+    "speed_mm_s": 12.744894218129687,
+    "spin_rad_s": 0.5421682152655118
+   }
+  },
+  "max_drift_mm": 0.4485348927153693,
+  "min_contact_dist_mm": -1.4672776263671297,
+  "ok": false
+ },
+ "V2_replay": {
+  "success": false,
+  "predicates": [
+   {
+    "pred": "on",
+    "obj": "mug_hollow_glazed_ceramic",
+    "support": "table",
+    "ok": true,
+    "force_N": 1.664,
+    "weight_N": 1.663
+   },
+   {
+    "pred": "released",
+    "obj": "mug_hollow_glazed_ceramic",
+    "ok": true,
+    "grip_force_N": 0.0
+   },
+   {
+    "pred": "upright",
+    "obj": "mug_hollow_glazed_ceramic",
+    "max_tilt_deg": 15.0,
+    "ok": true,
+    "tilt_deg": 2.49
+   },
+   {
+    "pred": "all_at_rest",
+    "ok": false
+   }
+  ],
+  "min_contact_dist_mm": -7.134803474519356,
+  "joint_track_err_deg": {
+   "median": 0.8686356673496511,
+   "max": 2.113029187648885
+  },
+  "vs_blend_reference": {
+   "mug_hollow_glazed_ceramic": {
+    "median_mm": 13.86251294450709,
+    "max_mm": 25.243662986433076,
+    "final_mm": 13.97986359612884
+   }
+  }
+ },
+ "V3_compare": {
+  "skipped": "GLB/test2 下没有与相机同名的源视频"
+ }
+}

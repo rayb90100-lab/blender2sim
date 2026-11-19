@@ -1,0 +1,11 @@
+{
+  "dataset": "cadene/droid_1.0.1 (LeRobot 移植的完整 DROID 1.0.1), 经 hf-mirror 下载",
+  "episode_index": 71,
+  "instruction": "Pick up the green block from the yellow cube and put it on the yellow cuboid.",
+  "robot": "Franka Panda 7-DoF + Robotiq 2F-85（DROID 标准平台）",
+  "fps": 15,
+  "resolution": "320x180（三路：exterior_1_left / exterior_2_left / wrist_left）",
+  "video_note": "原始 AV1，经 stp3x/ffmpeg 解码 → E2E/ffmpeg 编码 H.264 (crf 12)",
+  "selection": "前 150 条中：成功、单次抓取、刚体方块、任务为 on(obj, support)（与 test4 同谓词模板，不同场景）；扫描清单 droid_full_probe/scan/scan_0_149.json",
+  "intrinsics": "数据集未提供，需估计"
+}

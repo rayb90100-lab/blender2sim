@@ -1,0 +1,45 @@
+{
+ "all_pass": true,
+ "cases": {
+  "N0_no_action": {
+   "success": false,
+   "expected": false,
+   "pass": true,
+   "failed_predicates": [
+    "on(green_cylinder)"
+   ]
+  },
+  "N1_placed_on_table": {
+   "success": false,
+   "expected": false,
+   "pass": true,
+   "failed_predicates": [
+    "on(green_cylinder)"
+   ]
+  },
+  "N2_swept_tower": {
+   "success": false,
+   "expected": false,
+   "pass": true,
+   "failed_predicates": [
+    "on(green_cylinder)",
+    "upright(green_cylinder)",
+    "all_at_rest()"
+   ]
+  },
+  "N3_not_released": {
+   "success": false,
+   "expected": false,
+   "pass": true,
+   "failed_predicates": [
+    "released(green_cylinder)"
+   ]
+  },
+  "P_oracle": {
+   "success": true,
+   "expected": true,
+   "pass": true,
+   "failed_predicates": []
+  }
+ }
+}

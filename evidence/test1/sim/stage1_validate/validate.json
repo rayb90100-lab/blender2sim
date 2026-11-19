@@ -1,0 +1,131 @@
+{
+ "V1_settle": {
+  "objects": {
+   "orange_triangular_prism": {
+    "drift_mm": 0.06446791333021562,
+    "speed_mm_s": 1.396058617062909e-12,
+    "spin_rad_s": 1.1100151921539825e-15
+   },
+   "yellow_rectangular_block": {
+    "drift_mm": 0.06496791333039653,
+    "speed_mm_s": 1.3813619112639752e-12,
+    "spin_rad_s": 5.577100642687581e-16
+   },
+   "green_bridge_block": {
+    "drift_mm": 0.17745603801972784,
+    "speed_mm_s": 0.07571028799593249,
+    "spin_rad_s": 0.005265592441036485
+   },
+   "yellow_cube": {
+    "drift_mm": 0.24368758475885952,
+    "speed_mm_s": 0.26463748578388396,
+    "spin_rad_s": 0.00830633005303583
+   },
+   "green_cylinder": {
+    "drift_mm": 0.357373809343344,
+    "speed_mm_s": 0.5799544110446126,
+    "spin_rad_s": 0.02879069042058371
+   }
+  },
+  "max_drift_mm": 0.357373809343344,
+  "min_contact_dist_mm": -0.12590825941928563,
+  "ok": true
+ },
+ "V2_replay": {
+  "success": true,
+  "predicates": [
+   {
+    "pred": "on",
+    "obj": "green_cylinder",
+    "support": "yellow_rectangular_block",
+    "ok": true,
+    "force_N": 0.766,
+    "weight_N": 0.769
+   },
+   {
+    "pred": "released",
+    "obj": "green_cylinder",
+    "ok": true,
+    "grip_force_N": 0.0
+   },
+   {
+    "pred": "upright",
+    "obj": "green_cylinder",
+    "max_tilt_deg": 15.0,
+    "ok": true,
+    "tilt_deg": 0.18
+   },
+   {
+    "pred": "all_at_rest",
+    "ok": true
+   }
+  ],
+  "min_contact_dist_mm": -1.1223050444610243,
+  "joint_track_err_deg": {
+   "median": 0.719825855161616,
+   "max": 4.418592687859949
+  },
+  "vs_blend_reference": {
+   "orange_triangular_prism": {
+    "median_mm": 0.06446791333021562,
+    "max_mm": 0.06446791333021562,
+    "final_mm": 0.06446791333021562
+   },
+   "yellow_rectangular_block": {
+    "median_mm": 0.06496791333039653,
+    "max_mm": 1.4169820527021542,
+    "final_mm": 0.3941244994904596
+   },
+   "green_bridge_block": {
+    "median_mm": 0.17748173358654412,
+    "max_mm": 3.525360520171006,
+    "final_mm": 0.5845299168706863
+   },
+   "yellow_cube": {
+    "median_mm": 0.24430057280068315,
+    "max_mm": 8.420029278403854,
+    "final_mm": 1.0675101380136407
+   },
+   "green_cylinder": {
+    "median_mm": 0.35912914555802283,
+    "max_mm": 22.45467451396802,
+    "final_mm": 15.538671407221988
+   }
+  }
+ },
+ "V3_compare": {
+  "agentview": {
+   "video": "evidence/test1/sim/stage1_validate/compare_agentview.mp4",
+   "frames": 172,
+   "keyframes": [
+    0,
+    43,
+    86,
+    129,
+    171
+   ]
+  },
+  "agentview_2": {
+   "video": "evidence/test1/sim/stage1_validate/compare_agentview_2.mp4",
+   "frames": 172,
+   "keyframes": [
+    0,
+    43,
+    86,
+    129,
+    171
+   ]
+  },
+  "wrist": {
+   "video": "evidence/test1/sim/stage1_validate/compare_wrist.mp4",
+   "frames": 172,
+   "keyframes": [
+    0,
+    43,
+    86,
+    129,
+    171
+   ]
+  }
+ }
+}

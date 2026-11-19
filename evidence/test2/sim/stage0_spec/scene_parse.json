@@ -1,0 +1,149 @@
+{
+ "T_world_base": [
+  [
+   6.123233995736766e-17,
+   1.0,
+   0.0,
+   0.649
+  ],
+  [
+   -1.0,
+   6.123233995736766e-17,
+   0.0,
+   0.8420000000000001
+  ],
+  [
+   0.0,
+   0.0,
+   1.0,
+   0.13
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "table": {
+  "blend_name": "Main table | 浅木工作台 · tabletop",
+  "top_z": 0.1296118,
+  "center_xy": [
+   0.5318363,
+   0.1907801
+  ],
+  "size_xy": [
+   1.123040052589991,
+   0.7000000327797707
+  ],
+  "yaw_rad": -1.557339121253529,
+  "thickness": 0.024,
+  "floor_z": -0.6203882000000001
+ },
+ "objects": {
+  "mug_hollow_glazed_ceramic": {
+   "blend_name": "Mug · hollow glazed ceramic",
+   "shape": "cylinder",
+   "why": "b2s_config 指定",
+   "size": [
+    0.026362001771262984,
+    0.048537
+   ],
+   "yaw": -1.6210443656734643,
+   "tilt_deg": 0.0,
+   "features": {
+    "fill": 0.17684736250055144,
+    "hull_fill": 0.646078572129931,
+    "circularity": 0.2727272727272727,
+    "corner_frac": 0.0,
+    "top_spread": [
+     1.0,
+     1.0
+    ],
+    "bottom_inner": [
+     1.0,
+     1.0
+    ],
+    "aspect_ab": 1.0,
+    "tilt_deg": 0.0,
+    "n_verts": 970
+   },
+   "center": [
+    0.796739676348173,
+    0.37932549986893854,
+    0.1528808662453815
+   ],
+   "rgba": [
+    0.5490196119891921,
+    0.7294117703237838,
+    0.8392156832360868,
+    1.0
+   ],
+   "color_source": "材质 'Cup · glazed exterior' 线性色→sRGB",
+   "dynamic": true,
+   "on": [
+    "table"
+   ],
+   "bottom_z": 0.1286123662453815,
+   "top_z": 0.1771493662453815
+  }
+ },
+ "static": [],
+ "cameras": {
+  "00  工作台总览": {
+   "lens": 44.0,
+   "sensor_width": 36.0,
+   "sensor_height": 24.0,
+   "sensor_fit": "AUTO",
+   "shift": [
+    0.0,
+    0.0
+   ],
+   "clip": [
+    0.0010000000474974513,
+    30.0
+   ],
+   "type": "PERSP",
+   "props": {},
+   "mount": "world",
+   "moving": false,
+   "stream": null
+  },
+  "01  Wrist · 拟合鱼眼": {
+   "lens": 50.0,
+   "sensor_width": 22.399999618530273,
+   "sensor_height": 22.399999618530273,
+   "sensor_fit": "HORIZONTAL",
+   "shift": [
+    -0.0033967001363635063,
+    -0.00284128007479012
+   ],
+   "clip": [
+    0.0010000000474974513,
+    30.0
+   ],
+   "type": "PANO",
+   "props": {
+    "模型": "r_px = f * (theta + k1 * theta^3); fitted to direct-view static features",
+    "f_cx_cy_k1": [
+     91.75832289651895,
+     112.26086084706685,
+     110.86355325048623,
+     -0.07673246835775131
+    ],
+    "source_resolution": [
+     224,
+     224
+    ],
+    "装配平移_米": [
+     0.007680638663436396,
+     -0.09392821488030173,
+     -0.21522569347669404
+    ]
+   },
+   "mount": "ee",
+   "moving": true,
+   "stream": null
+  }
+ }
+}

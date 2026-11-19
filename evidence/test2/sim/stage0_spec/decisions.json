@@ -1,0 +1,258 @@
+[
+ {
+  "key": "embodiment",
+  "choice": "handheld_gripper",
+  "evidence": "b2s_config.json 手动指定",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "table",
+  "choice": "Main table | 浅木工作台 · tabletop",
+  "evidence": "b2s_config 指定",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "objects",
+  "choice": [
+   "Mug · hollow glazed ceramic"
+  ],
+  "evidence": "b2s_config 指定",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "floor",
+  "choice": "估计",
+  "evidence": "没找到地面网格，取桌面以下 0.75 m",
+  "fallback": true,
+  "warn": false
+ },
+ {
+  "key": "shape[mug_hollow_glazed_ceramic]",
+  "choice": "cylinder",
+  "evidence": "b2s_config 指定",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "static",
+  "choice": 0,
+  "evidence": "桌面附近静止网格 → 碰撞 box：[]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "ee",
+  "choice": "手持夹爪根对象 'UMI  |  记录的末端坐标系 · 6DoF' × root_to_pinch",
+  "evidence": "924 帧",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "moved_objects",
+  "choice": [
+   "mug_hollow_glazed_ceramic"
+  ],
+  "evidence": "被搬运帧数 [84]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "hold_mask",
+  "choice": {
+   "mug_hollow_glazed_ceramic": [
+    728,
+    770
+   ]
+  },
+  "evidence": "持物段 = carry 帧中抬升 > 0.5×最大抬升；夹爪一致性只在此段统计（carry 84 帧 → hold 43 帧）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.candidate[blend:UMI  |  记录的末端坐标系 · 6DoF.g]",
+  "choice": "通过",
+  "evidence": "搬运帧中闭合比例 1.0；取值范围 [0.0, 0.94]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper",
+  "choice": "blend:UMI  |  记录的末端坐标系 · 6DoF.g",
+  "evidence": "第一个通过一致性检查的候选（按 数据集 > 外部/人手 > blend 排序）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.spurious_close",
+  "choice": {
+   "frames": [
+    339,
+    340,
+    341,
+    342,
+    343,
+    344,
+    345,
+    346,
+    347,
+    348,
+    349,
+    350,
+    351,
+    352,
+    353,
+    354,
+    355,
+    356,
+    357,
+    358
+   ],
+   "n": 87
+  },
+  "evidence": "g 曲线在这些帧闭合，但物体并未被抬起（hold 段 728-770）→ 判为读数尖峰，指令回退为实测开口；否则夹爪会在对准前闭合把物体打飞",
+  "fallback": false,
+  "warn": true
+ },
+ {
+  "key": "gripper.command",
+  "choice": "inferred",
+  "evidence": "无指令通道：实测提前 8 帧；挤压力按物理开口给 （实测开口 −10mm 后换算到 2F-85 行程，避免 UMI(80mm)/2F-85(85mm) 基准差被放大）",
+  "fallback": true,
+  "warn": false
+ },
+ {
+  "key": "events",
+  "choice": [
+   {
+    "frame": 348,
+    "event": "grasp_close"
+   },
+   {
+    "frame": 386,
+    "event": "release_open"
+   },
+   {
+    "frame": 684,
+    "event": "grasp_close"
+   },
+   {
+    "frame": 812,
+    "event": "release_open"
+   }
+  ],
+  "evidence": "夹爪阈值 0.2",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "demo.trim_failed_attempt",
+  "choice": {
+   "dropped_frames": 683,
+   "failed_close_segments": [
+    [
+     347,
+     384
+    ]
+   ],
+   "kept_from": 684
+  },
+  "evidence": "成功抓取（hold 728）之前有 1 段「合拢但没夹住」的试探，那段人把物体推走了 0mm 级位移且机器人夹爪外壳比人手宽 4 倍、必然碰撞→ 从成功抓取前 1.5s 起裁剪，物体初始位姿同步移到裁剪首帧",
+  "fallback": false,
+  "warn": true
+ },
+ {
+  "key": "robot_base",
+  "choice": "config",
+  "evidence": "b2s_config 指定基座位姿",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "robot_base",
+  "choice": {
+   "xyz": [
+    0.649,
+    0.842,
+    0.13
+   ],
+   "yaw_deg": -90.0
+  },
+  "evidence": "1 个候选中「零碰撞帧且可达且力矩未饱和」的有 1 个；选中：碰撞帧 0/241、最深侵入 0 mm、峰值力矩占上限 48%、抽样帧可达 100%、关节限位余量 3.0°（基座 z 候选：桌面 0.130 +0.05 m、地面 -0.620 m）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "retarget.clearance",
+  "choice": {
+   "penetration_mm": 0.0,
+   "n_colliding": 0,
+   "bad_frames": [],
+   "peak_torque_frac": 0.483
+  },
+  "evidence": "全帧精解后重新复核机器人与桌面/地面的净空；碰撞帧会被物理挡住，回放跟不上就是从这里来的",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "retarget.ik",
+  "choice": {
+   "bad_frames": [],
+   "n_bad": 0,
+   "pos_err_mm_max": 0.1,
+   "rot_err_deg_max": 0.02,
+   "max_joint_step_deg": 0.88
+  },
+  "evidence": "逐帧 IK（上一帧热启动、180° 对称取近）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "success[mug_hollow_glazed_ceramic]",
+  "choice": [
+   {
+    "pred": "on",
+    "obj": "mug_hollow_glazed_ceramic",
+    "support": "table"
+   },
+   {
+    "pred": "released",
+    "obj": "mug_hollow_glazed_ceramic"
+   },
+   {
+    "pred": "upright",
+    "obj": "mug_hollow_glazed_ceramic",
+    "max_tilt_deg": 15.0
+   }
+  ],
+  "evidence": "终态底面落在 table 顶面上，倾角 0.0°",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "camera[agentview]",
+  "choice": "00  工作台总览",
+  "evidence": "世界固定，fovy 25.9°，cx/cy 偏离中心 +0.0/+0.0 px @ 512x288",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "camera[wrist]",
+  "choice": "01  Wrist · 拟合鱼眼",
+  "evidence": "挂在机器人末端；相对 link7 逐帧离散 0.132 mm",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "grasp_width[mug_hollow_glazed_ceramic]",
+  "choice": {
+   "object_mm": 52.7,
+   "stall_aperture_mm": 58.6
+  },
+  "evidence": "物体宽度与夹爪停止开口差 >3 mm：blend 尺寸或夹爪标定有误",
+  "fallback": false,
+  "warn": true
+ }
+]

@@ -1,0 +1,91 @@
+{
+ "_note": "UMI ep68 真实数据：手持夹爪（无机械臂）。根对象 = blend 里记录的末端坐标系，两指由自定义属性 g 驱动。table/objects 必须指向网格（blend 里这两样是 EMPTY 包着若干网格）。",
+ "embodiment": {
+  "type": "handheld_gripper",
+  "root": "UMI  |  记录的末端坐标系 · 6DoF",
+  "_note": "z_can=+z_root（指垫薄端/指尖朝 +z，GoPro 在 -z 侧朝 +z 看）；y_can=+x_root（两指沿 x_root 分开）；x_can=-y_root（右手系）；平移 = 杯身几何中心在 root 系的偏移（抓取段 std=0）。注意 Mug 网格原点在杯口顶部，不能用原点当 pinch 目标，否则两指悬在杯口上方夹空",
+  "root_to_pinch": [
+   [
+    0,
+    1,
+    0,
+    0.0067
+   ],
+   [
+    -1,
+    0,
+    0,
+    -0.0077
+   ],
+   [
+    0,
+    0,
+    1,
+    -0.0437
+   ],
+   [
+    0,
+    0,
+    0,
+    1
+   ]
+  ]
+ },
+ "table": "Main table | 浅木工作台 · tabletop",
+ "objects": [
+  "Mug · hollow glazed ceramic"
+ ],
+ "shapes": {
+  "Mug · hollow glazed ceramic": "cylinder"
+ },
+ "instruction": "Pick up the blue cup and place it on the table.",
+ "exclude_trees": [
+  "Ceiling · softbox",
+  "Ceiling · light panel",
+  "Ceiling · recessed fixture",
+  "Glazing · horizontal stripe",
+  "Laboratory · ceiling",
+  "Laboratory · light floor",
+  "Laboratory · rear wall",
+  "Laboratory · return wall",
+  "Laboratory · white column",
+  "Rear table | 深木工作台",
+  "Mauve tray | 后桌方盒",
+  "Rear partition · glass field",
+  "Rear partition · kick strip",
+  "Rear partition · silver mullion",
+  "196 static landmarks · metric triangulation",
+  "00  工作台总览",
+  "Tripod",
+  "Mug · ceramic loop handle",
+  "Saucer  |  蓝色杯碟",
+  "Camera cage · strut",
+  "GoPro · optical frame | 估计手眼外参"
+ ],
+ "robot_base": [
+  [
+   6.123233995736766e-17,
+   1.0,
+   0,
+   0.649
+  ],
+  [
+   -1.0,
+   6.123233995736766e-17,
+   0,
+   0.8420000000000001
+  ],
+  [
+   0,
+   0,
+   1,
+   0.13
+  ],
+  [
+   0,
+   0,
+   0,
+   1
+  ]
+ ]
+}

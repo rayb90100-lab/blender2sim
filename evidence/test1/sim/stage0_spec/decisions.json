@@ -1,0 +1,303 @@
+[
+ {
+  "key": "embodiment",
+  "choice": "robot_arm",
+  "evidence": "骨架 'PANDA  |  七轴关节 · 实测动画' 有 7 根逐帧单轴旋转的骨骼",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "robot.fk_check(raw)",
+  "choice": {
+   "1": [
+    0.0,
+    0.0
+   ],
+   "2": [
+    0.0,
+    0.0
+   ],
+   "3": [
+    0.0,
+    0.0
+   ],
+   "4": [
+    0.0,
+    0.0
+   ],
+   "5": [
+    0.0,
+    0.0
+   ],
+   "6": [
+    0.0,
+    0.0
+   ],
+   "7": [
+    0.0,
+    0.0
+   ]
+  },
+  "evidence": "各连杆 X_i(t) 离散度 [mm, deg]；同一刚体应≈0",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "robot.fk_check",
+  "choice": "通过",
+  "evidence": "最大离散度 0.0002（阈值 2 mm / 2°）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "table",
+  "choice": "Oak worktop | 视频木纹",
+  "evidence": "支撑树包含被演示移动的物体 ['Green cylinder | 被抓取物']",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "objects",
+  "choice": [
+   "Orange triangular prism | 橙红色楔块",
+   "Yellow rectangular block | 放置目标",
+   "Green bridge block | 拱形底座",
+   "Yellow cube | 初始支座",
+   "Green cylinder | 被抓取物"
+  ],
+  "evidence": "以桌面为根的支撑树；候选 47 个中 5 个在树上",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "objects.vs_collection",
+  "choice": "01  ·  Task objects | 五件彩色积木",
+  "evidence": "自动识别结果与 blend 集合完全一致",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "floor",
+  "choice": "Laboratory · linoleum floor",
+  "evidence": "桌面以下面积 >1 m² 的水平面，顶面 z=-0.776",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "shape[orange_triangular_prism]",
+  "choice": "prism",
+  "evidence": "凸包填充 0.51≈0.5、顶部成脊",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "shape[yellow_rectangular_block]",
+  "choice": "box",
+  "evidence": "体积填充 0.99",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "shape[green_bridge_block]",
+  "choice": "arch",
+  "evidence": "凸包填充 1.00 但实体填充 0.77（下方有空腔）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "shape[yellow_cube]",
+  "choice": "box",
+  "evidence": "体积填充 1.00",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "shape[green_cylinder]",
+  "choice": "cylinder",
+  "evidence": "水平截面圆度 0.75、凸包填充 0.784（π/4=0.785）、无角点",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "static",
+  "choice": 55,
+  "evidence": "桌面附近静止网格 → 碰撞 box：['Baffle · slender support', 'Baffle · slender support.001', 'Camera post · ball head', 'Camera post · ball head.001', 'Camera post · column', 'Camera post · column.001', 'Camera post · mounting clamp', 'Camera post · mounting clamp.001', 'Camera post · swivel', 'Camera post · swivel.001', 'Camera post · upper arm', 'Camera post · upper arm.001'] …",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "ee",
+  "choice": "blend 关节角 → MuJoCo FK（pinch site）",
+  "evidence": "172 帧",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "track[green_cylinder].invalid",
+  "choice": [
+   137,
+   138,
+   139,
+   140,
+   141,
+   142,
+   143,
+   144
+  ],
+  "evidence": "blend 动画 8 帧无效（非有限/越界/速度>3.0 m/s）",
+  "fallback": false,
+  "warn": true
+ },
+ {
+  "key": "moved_objects",
+  "choice": [
+   "green_cylinder"
+  ],
+  "evidence": "被搬运帧数 [39]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.candidate[dataset:droid]",
+  "choice": "通过",
+  "evidence": "搬运帧中闭合比例 1.0；取值范围 [0.0, 0.661]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.candidate[blend:2F-85  |  Jaw control · 夹爪开合.aperture_mm]",
+  "choice": "通过",
+  "evidence": "搬运帧中闭合比例 1.0；取值范围 [0.0, 0.661]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.candidate[blend:2F-85  |  Jaw control · 夹爪开合.jaw_angle_rad]",
+  "choice": "通过",
+  "evidence": "搬运帧中闭合比例 1.0；取值范围 [0.001, 0.683]",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper",
+  "choice": "dataset:droid",
+  "evidence": "第一个通过一致性检查的候选（按 数据集 > 外部/人手 > blend 排序）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "gripper.command",
+  "choice": "dataset",
+  "evidence": "数据集 action.gripper_position（遥操作指令）；实测：指令领先 4 帧、搬运段指令−实测 0.25（推断常数为 0.27s / 0.25）",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "track[green_cylinder].rigid_violation",
+  "choice": [
+   108,
+   109,
+   110,
+   111,
+   112,
+   113
+  ],
+  "evidence": "抓持搬运中相对 pinch 偏离参考抓取 >10 mm（最大 32.1 mm）",
+  "fallback": false,
+  "warn": true
+ },
+ {
+  "key": "track[green_cylinder].repair",
+  "choice": {
+   "rigid_with_pinch": [
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144
+   ],
+   "interpolated": []
+  },
+  "evidence": "夹爪闭合期间 = pinch × 参考抓取位姿，其余前后有效帧插值+slerp",
+  "fallback": true,
+  "warn": false
+ },
+ {
+  "key": "events",
+  "choice": [
+   {
+    "frame": 91,
+    "event": "grasp_close"
+   },
+   {
+    "frame": 162,
+    "event": "release_open"
+   }
+  ],
+  "evidence": "夹爪阈值 0.2",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "success[green_cylinder]",
+  "choice": [
+   {
+    "pred": "on",
+    "obj": "green_cylinder",
+    "support": "yellow_rectangular_block"
+   },
+   {
+    "pred": "released",
+    "obj": "green_cylinder"
+   },
+   {
+    "pred": "upright",
+    "obj": "green_cylinder",
+    "max_tilt_deg": 15.0
+   }
+  ],
+  "evidence": "终态底面落在 yellow_rectangular_block 顶面上，倾角 0.0°",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "camera[agentview]",
+  "choice": "01 Exterior 1 | 外部一",
+  "evidence": "世界固定，fovy 73.9°，cx/cy 偏离中心 -15.8/-1.4 px @ 512x288",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "camera[agentview_2]",
+  "choice": "02 Exterior 2 | 外部二",
+  "evidence": "世界固定，fovy 73.8°，cx/cy 偏离中心 +16.5/+0.7 px @ 512x288",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "camera[wrist]",
+  "choice": "03 Wrist left | 腕部左目",
+  "evidence": "挂在机器人末端；相对 link7 逐帧离散 0.000 mm",
+  "fallback": false,
+  "warn": false
+ },
+ {
+  "key": "grasp_width[green_cylinder]",
+  "choice": {
+   "object_mm": 27.1,
+   "stall_aperture_mm": 28.8
+  },
+  "evidence": "一致（≤3 mm）",
+  "fallback": false,
+  "warn": false
+ }
+]
