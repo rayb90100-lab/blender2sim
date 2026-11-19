@@ -88,3 +88,4 @@ tools/r2pear/sweep_contact.py
 tools/r2pear/check_demo_replay.py
 tools/r2pear/quality_gate.py
 tools/smoke_scene.xml
+CLAUDE.md
