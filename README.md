@@ -141,12 +141,27 @@ huggingface-cli download cadene/droid_1.0.1 --repo-type dataset \
   --include "*episode_000071*" --local-dir $ROBOLAB_DATA/datasets/droid
 ```
 
-⚠️ **`DROID_0071.blend` 不在本仓库里**，它是由已移除的旧路线脚本从 parquet + 三路视频
-重建出来的（`extract.json` 里记着 `blend: GLB/test1/DROID_0071.blend`）。
-精简后**没有脚本能从 parquet 直接生成带骨架动画的 blend**。
-所以 test1 的复现路径是：用 `evidence/test1/sim/stage0_extract/extract.json` 直接跑
-`build_spec.py` 之后的各步，或者自备 blend。从 parquet 重建 blend 的那套脚本在
-git 历史里（`74eb5b3` 之前的 `tools/droid_stage*.py` 等），但依赖较多、未整理成入口。
+**场景文件不在仓库里**（二进制，7.8 MB），放在 release 资产里：
+
+```
+https://github.com/rayb90100-lab/blender2sim/releases/tag/v0.1.0-blends
+```
+
+| 文件 | 大小 | SHA256 |
+|---|---|---|
+| `DROID_0071.blend` | 6.80 MB | `25838c75bec78e4e5b3eb3c14ca8c1f09b27c2e06a7086dfd180976ab9a4cf99` |
+| `UMI_ep68.blend` | 0.61 MB | `d9ffdae16a0c91c2668c9eef99291e8dbbb998f416fbfd41771801edf52e3658` |
+
+下载后直接跑：
+
+```bash
+$B2S_PYTHON tools/r2pear/b2s/run.py --blend DROID_0071.blend --out <simdir> --env-tests
+```
+
+`DROID_0071.blend` 是工作区作者从 parquet + 三路视频重建的（`extract.json` 里记着
+`blend: GLB/test1/DROID_0071.blend`）。**重建脚本不在本仓库**——它属于已移除的旧路线
+（`74eb5b3` 之前的 `tools/droid_stage*.py`、`droid_augment*.py` 等），依赖 MoGe、sam2
+若干外部权重，未整理成可复现入口。所以这一环无法从原始数据集重新生成，只能取这个资产。
 
 ### test2：UMI ep68
 
@@ -175,6 +190,9 @@ $B2S_PYTHON tools/umi_extract/extract_umi_episode.py \
 ⚠️ **为什么选 ep68**：这份数据集 305 条里只有 ep68 有真实抓取动作。
 全库夹爪宽度四分位是 `[0.052, 0.055, 0.063, 0.081, 0.083, 0.083]` m ——
 绝大多数 episode 夹爪停在张开状态。出现过 < 30 mm 的**只有 ep68**（15 帧，最闭合 4.8 mm）。
+
+场景文件同样在 release 里：`UMI_ep68.blend`（0.61 MB，SHA256 见上）。
+它只含场景与演示者，不含机器人——具身是 `handheld_gripper`，走 `retarget.py` 重定向到 Panda。
 
 复跑验证（不需要原始数据，`evidence/` 里已有产物）：
 
