@@ -91,6 +91,19 @@ V2 回放    success=true   关节跟踪中位 0.72° / 最大 4.42°
            4 个谓词全过（on force 0.766 N vs 自重 0.769 N）
 ```
 
+这套管线在 2026-11-19 从原始 `DROID_0071.blend` **重跑过一遍完整流程**
+（extract → 具身 → 解析 → 演示 → spec → validate，非读取缓存），结果：
+
+```
+V1 静置    max_drift 0.358 mm    penetration −0.148 mm    ok=true
+V2 回放    success=true    关节跟踪中位 0.72° / 最大 4.42°    4 谓词全过
+V3 对照    三路视频各 172 帧
+决策记录   30 条（兜底 1、警告 2，均为数据质量问题的自动修复，已记录）
+```
+
+与仓库内 `evidence/` 的差异（0.02 mm / 0.3 µm）来自 MuJoCo 求解顺序的非确定性，
+不影响任何判定。
+
 **test2** 的现状（不要当成已通过）：
 
 ```
@@ -100,10 +113,70 @@ V1 静置  杯子 speed 12.74 mm/s（阈值 5）
 V2      最低接触 −7.13 mm，与 blend 参考轨迹中位偏 13.9 mm
 ```
 
-根因怀疑是 `PIPELINE_LOG.md §5` 记的那个结构性冲突：UMI 是人手持爪、手腕可贴桌面上方
-3 cm 作业，而 Panda 的 link5/link6 直径 8 cm。这个演示对 Panda 是否物理可行还没定论。
+根因怀疑是结构性冲突：UMI 是人手持爪、手腕可贴桌面上方 3 cm 作业，
+而 Panda 的 link5/link6 直径 8 cm。这个演示对 Panda 是否物理可行还没定论。
 
-复跑验证（不需要重新跑 bpy 提取）：
+## 数据集（复现用）
+
+两条证据的原始数据都在公开数据集里。`evidence/` 里的产物可以直接复跑验证，
+只有想**从头重建场景**时才需要下载原始数据。
+
+### test1：DROID ep71
+
+| 项 | 值 |
+|---|---|
+| 数据集 | `cadene/droid_1.0.1`（LeRobot 移植的完整 DROID 1.0.1） |
+| HuggingFace | https://huggingface.co/datasets/cadene/droid_1.0.1 |
+| 国内镜像 | https://hf-mirror.com/datasets/cadene/droid_1.0.1 |
+| 许可 | apache-2.0，无需申请 |
+| Episodes | 76k 条，27 TB。**只需下 ep71 那一个 parquet** |
+| 定位 | `**/episode_000071.parquet`（`sources.py::find_droid_episode` 按这个模式找） |
+| 指令 | Pick up the green block from the yellow cube and put it on the yellow cuboid. |
+| 视频 | 三路 320×180 @ 15 fps：`exterior_1_left` / `exterior_2_left` / `wrist_left` |
+
+```bash
+# 用镜像下（官方源在国内约 37 KB/s）
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download cadene/droid_1.0.1 --repo-type dataset \
+  --include "*episode_000071*" --local-dir $ROBOLAB_DATA/datasets/droid
+```
+
+⚠️ **`DROID_0071.blend` 不在本仓库里**，它是由已移除的旧路线脚本从 parquet + 三路视频
+重建出来的（`extract.json` 里记着 `blend: GLB/test1/DROID_0071.blend`）。
+精简后**没有脚本能从 parquet 直接生成带骨架动画的 blend**。
+所以 test1 的复现路径是：用 `evidence/test1/sim/stage0_extract/extract.json` 直接跑
+`build_spec.py` 之后的各步，或者自备 blend。从 parquet 重建 blend 的那套脚本在
+git 历史里（`74eb5b3` 之前的 `tools/droid_stage*.py` 等），但依赖较多、未整理成入口。
+
+### test2：UMI ep68
+
+| 项 | 值 |
+|---|---|
+| 数据集 | UMI `cup_in_the_wild`（zarr_datasets） |
+| 下载 | https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip |
+| 大小 | 17.99 GB（305 episodes / 184958 帧） |
+| Episode | 68，帧区间 `[49453, 50377)`，924 帧 |
+| 具身 | 单臂（只有 `robot0_*`，全库无 `robot1_*`） |
+
+```bash
+curl -L -o $ROBOLAB_DATA/downloads/cup_in_the_wild.zarr.zip \
+  https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip
+
+# 抽 ep68 → zarr + 规范末端 npz + 腕部相机 mp4
+$B2S_PYTHON tools/umi_extract/extract_umi_episode.py \
+  --src $ROBOLAB_DATA/downloads/cup_in_the_wild.zarr.zip --episode 68 --out <outdir>
+```
+
+⚠️ **本仓库的证据不是从这个 URL 的文件生成的。** 本地副本是 `cup_in_the_lab.zarr.zip`
+（4.2 GB，解压 4.47 GB），与官方 `cup_in_the_wild`（17.99 GB）**文件名不同、大小差 4 倍，
+且从未做过内容比对**。字段结构一致，但 ep68 的具体内容可能不同。
+引用时请以自己下载的官方文件为准，或以此说明为参照重新抽取。
+
+⚠️ **为什么选 ep68**：这份数据集 305 条里只有 ep68 有真实抓取动作。
+全库夹爪宽度四分位是 `[0.052, 0.055, 0.063, 0.081, 0.083, 0.083]` m ——
+绝大多数 episode 夹爪停在张开状态。出现过 < 30 mm 的**只有 ep68**（15 帧，最闭合 4.8 mm）。
+
+复跑验证（不需要原始数据，`evidence/` 里已有产物）：
 
 ```bash
 source setup_env.sh

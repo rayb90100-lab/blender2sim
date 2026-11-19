@@ -22,7 +22,9 @@ import zipfile
 
 import numpy as np
 
-SRC_DEFAULT = "/media/data1/RoboLab_data/downloads/cup_in_the_lab.zarr.zip"
+_DATA = os.environ.get("ROBOLAB_DATA", "")
+SRC_DEFAULT = os.path.join(_DATA, "downloads", "cup_in_the_wild.zarr.zip") if _DATA else \
+    "cup_in_the_wild.zarr.zip"
 SRC_URL = "https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip"
 UMI_MAX_APERTURE = 0.08
 UMI_TCP_TO_PINCH = np.eye(3)  # 与 tools/r2pear/b2s/sources.py 保持一致
