@@ -833,3 +833,10 @@ blender2sim 本地修复日志
 - build_spec.py 新增 wrist 刚性检查（默认阈值 1 mm）。超阈值时在 decisions.json 记录源相机和离散告警，
   自动使用标准虚拟 wrist 观察相机；源视频相机不再被静默当作已标定外参。可用 wrist_fallback 配置覆盖位置、姿态、视场和近裁剪面。
 - 更新 b2s README 和回归测试；b2s 测试 57 项通过。该回退用于交互检查，不宣称源相机标定通过。
+
+2026-11-20 | b2s-pipeline 编排层整理（新分支）
+----------------------------------------------------------------------
+- 从 acceleration 创建 `b2s-pipeline` 分支。`tools/r2pear/b2s/run.py` 现在只负责命令行参数解析，
+  新增 `pipeline/` 包负责加载上下文、具身识别、场景解析、演示轨迹、spec 写出、验证、环境验收和末尾速度诊断。
+- 原有领域模块和处理顺序保持不变；阶段通过 `PipelineOptions` / `PipelineContext` 传递，后续可加入输入适配器或发布阶段。
+- 用 DROID_0071 Blender 资产做 `--skip-validate` 端到端 smoke，输出 stage0 提取/spec 成功；全套 b2s 回归 59 项通过。

@@ -26,6 +26,30 @@ MUJOCO_GL=egl $PY tools/r2pear/web_ui.py --testdir <simdir> --port 8112      # �
 
 每一个自动判断都记在 `stage0_spec/decisions.json`，字段是 `choice`、`evidence`、`fallback`、`warn`，**没有静默兜底**。
 
+### 可组合的编排层
+
+命令行入口 `run.py` 只负责参数解析；`pipeline/` 负责阶段顺序和中间状态，原有
+`extract_blend.py`、`embodiment.py`、`demo.py`、`retarget.py`、`build_spec.py` 和
+`validate.py` 继续作为领域算法层。阶段之间通过 `PipelineContext` 传递数据，因此可以
+从 Python 调用同一套流程，或在后续加入新的输入适配器、发布阶段和任务队列，而不需要
+修改命令行入口。
+
+```text
+PipelineOptions
+      │
+      ▼
+load_context → identify_embodiment → parse_scene → build_demo
+      → write_spec → validate → environment_tests → speed_diagnosis
+```
+
+```python
+from tools.r2pear.b2s.pipeline import PipelineOptions, run_pipeline
+
+run_pipeline(PipelineOptions(blend=blend_path, out=output_dir))
+```
+
+这层只整理编排，不改变各阶段的算法、输出目录或验证顺序。
+
 ## 最后才做速度诊断
 
 先检查来源与帧对应、整体配准、工具/抓取点、碰撞与初态、夹持指令和控制跟踪。
