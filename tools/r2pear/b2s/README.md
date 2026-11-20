@@ -114,6 +114,12 @@ test4 的原始机器人整体一致、局部夹持参考差约20.2 mm；经对�
 }
 ```
 
+腕部相机也会做刚性检查。源 wrist 相对 `link7` 的逐帧位置离散超过
+`wrist_rigid_spread_warn_mm`（默认 1 mm）时，管线会在 `decisions.json` 中记录警告，
+并自动改用标准的虚拟 wrist 观察相机，保证 WebUI 仍能看到夹爪。可以在配置中用
+`wrist_fallback` 覆盖虚拟相机的 `pos`、`quat_wxyz`、`fovy_deg` 或 `near_clip_m`；
+这个回退视角用于交互检查，不代表源视频相机已经完成标定。
+
 ## DROID 父子对象关节输入
 
 父子对象机械臂可指定 `embodiment.type="robot_arm"`、`representation="object_joints"`、

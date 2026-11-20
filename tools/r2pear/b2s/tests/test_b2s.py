@@ -45,6 +45,17 @@ def test_visual_binding_preserves_excluded_background():
     assert "Saucer  |  蓝色杯碟" not in binding["hide"]
 
 
+def test_virtual_wrist_fallback_is_stable():
+    """A non-rigid source wrist must fall back to the standard inspection view."""
+    import build_spec
+    c = build_spec.virtual_wrist_camera()
+    assert c["mount"] == "link7"
+    assert c["fovy_deg"] == 65.0
+    assert c["near_clip_m"] == 0.001
+    overridden = build_spec.virtual_wrist_camera({"wrist_fallback": {"fovy_deg": 58}})
+    assert overridden["fovy_deg"] == 58
+
+
 def test_joint_sign_offset_repair():
     """把 J3 的旋转取反、J5 加 30° 零点偏移后，FK 校验必须失败并自动拟合回 s=-1 / c=-30°。"""
     ex = Extract(EXTRACT)
