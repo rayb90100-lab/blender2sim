@@ -36,6 +36,20 @@ MUJOCO_GL=egl $B2S_PYTHON tools/r2pear/web_ui.py --testdir <simdir> --port 8091
 
 详细用法见 [`tools/r2pear/b2s/README.md`](tools/r2pear/b2s/README.md)。
 
+### 管线编排
+
+`tools/r2pear/b2s/run.py` 只负责命令行参数解析；阶段编排位于
+[`tools/r2pear/b2s/pipeline/`](tools/r2pear/b2s/pipeline/)：
+
+```text
+load_context → identify_embodiment → parse_scene → build_demo
+    → write_spec → validate → environment_tests → speed_diagnosis
+```
+
+`PipelineOptions` 和 `PipelineContext` 是阶段之间的稳定接口，原有提取、重定向、物理
+构建和验证模块保持独立。后续可以增加新的输入适配器或发布阶段，而不需要把逻辑重新
+塞回命令行入口。
+
 DROID 建模资料提取见 [`tools/DROID_EXTRACTION.txt`](tools/DROID_EXTRACTION.txt)：
 三路 left 视频和来源清单之外，默认保留实测/指令轨迹；有匹配的原始标定时附上，并注明缺失项。
 
@@ -64,6 +78,7 @@ $B2S_PYTHON tools/r2pear/export_scene.py --testdir runs/test1 --out outputs/test
 tools/r2pear/                核心管线
   b2s/                       .blend → PEAR 环境（主链路）
     run.py                   入口
+    pipeline/                阶段编排与中间状态接口
     extract_blend.py         bpy 子进程，提取 blend 事实
     embodiment.py            具身识别 + FK 校验 + 关节符号/零点拟合
     parse_scene.py           场景解析
@@ -173,6 +188,9 @@ https://github.com/rayb90100-lab/blender2sim/releases/tag/v0.1.0-blends
 |---|---|---|---|---|
 | `DROID_0071.blend.zip` | `DROID_0071.blend` | 6.80 MB | `4cd1dd22abaed5b4c787986ab2a6bc52e8f2098db81739f0646ea4ade002479e` | `25838c75bec78e4e5b3eb3c14ca8c1f09b27c2e06a7086dfd180976ab9a4cf99` |
 | `UMI_ep68.blend.zip` | `UMI_ep68.blend` | 0.61 MB | `699922b6299200033c131f66677521bccc24b652735456cbe200c01ab8d18523` | `d9ffdae16a0c91c2668c9eef99291e8dbbb998f416fbfd41771801edf52e3658` |
+| `EgoDex_basic_pick_place_0001.blend.zip` | `EgoDex_basic_pick_place_0001.blend` | 0.60 MB | `a2c039c53e5f616cb8237f113780cf883a12603ac06172ffe868a409922c51ca` | `80a7441cb1b90bda50176e9a20ae21d098841a666768a796ca6601e258718744` |
+| `DROID_s00000_r00000.blend.zip` | `DROID_s00000_r00000.blend` | 5.70 MB | `225115003a463e0a57ea490df1803c70c3d928ef9d5dc5914d1c3cafc511f18d` | `e4b479bff697d6dab5dbee0f560ae39531b0ecebc4d6271d32e30db948eeb1c1` |
+| `DROID_s00000_r00008.blend.zip` | `DROID_s00000_r00008.blend` | 4.96 MB | `55e3c4987dff3033d063079a2f696fcfbd9e7bddbb23cba32facec56b105c682` | `99eefb99bf91905b03410ba8386b69b5e52dd349df8eb96a77f4d8ec6870545c` |
 
 解压后直接跑：
 

@@ -26,6 +26,30 @@ MUJOCO_GL=egl $PY tools/r2pear/web_ui.py --testdir <simdir> --port 8112      # �
 
 每一个自动判断都记在 `stage0_spec/decisions.json`，字段是 `choice`、`evidence`、`fallback`、`warn`，**没有静默兜底**。
 
+### 可组合的编排层
+
+命令行入口 `run.py` 只负责参数解析；`pipeline/` 负责阶段顺序和中间状态，原有
+`extract_blend.py`、`embodiment.py`、`demo.py`、`retarget.py`、`build_spec.py` 和
+`validate.py` 继续作为领域算法层。阶段之间通过 `PipelineContext` 传递数据，因此可以
+从 Python 调用同一套流程，或在后续加入新的输入适配器、发布阶段和任务队列，而不需要
+修改命令行入口。
+
+```text
+PipelineOptions
+      │
+      ▼
+load_context → identify_embodiment → parse_scene → build_demo
+      → write_spec → validate → environment_tests → speed_diagnosis
+```
+
+```python
+from tools.r2pear.b2s.pipeline import PipelineOptions, run_pipeline
+
+run_pipeline(PipelineOptions(blend=blend_path, out=output_dir))
+```
+
+这层只整理编排，不改变各阶段的算法、输出目录或验证顺序。
+
 ## 最后才做速度诊断
 
 先检查来源与帧对应、整体配准、工具/抓取点、碰撞与初态、夹持指令和控制跟踪。
@@ -54,6 +78,22 @@ python tools/r2pear/b2s/speed_diagnosis.py --simdir <simdir> --reason "已完成
 诊断不修改 `task_spec.json`、`demo.npz`、`validate.json`，也不自动发布。降速通过只是适配候选，
 不证明原时序通过，不自动证明具体根因；采用适配版时应另设配置并保留原失败报告。
 `retarget_time_scale` 仍可用于明确选择过的场景配置，例如test3现有三倍执行时长版本。
+
+## acceleration 分支的实时 Blender 预览
+
+`acceleration` 分支提供一个仅用于 WebUI 的运行时优化开关，不修改源 `.blend`、MuJoCo
+物理或高清发布。启动时可以在一次性运行副本中烘焙 Bevel、Weighted Normal、Solidify 和
+Subdivision；后续只在 MuJoCo 状态实际变化时更新动态节点，相同状态的镜头请求复用已求值场景。
+实时引擎使用 GPU EEVEE，Cycles 仍保留给原始高清发布。
+
+```bash
+bash tools/r2pear/acceleration-web.sh \
+  outputs/test5-release-ready/interactive/scene 8195
+```
+
+该脚本的第二个参数是端口，不需要额外的 `start` 参数；它不会保存修改后的 Blender 文件。
+首次切换仍需加载和烘焙场景；之后的镜头请求才体现
+运行时优化。若驱动、OptiX/EGL 或材质不兼容，回到原有 `local/test5-service.sh` 即可。
 
 ## Blender 转仿真的初态验收
 
@@ -113,6 +153,12 @@ test4 的原始机器人整体一致、局部夹持参考差约20.2 mm；经对�
   "robot_base": [[4x4]]
 }
 ```
+
+腕部相机也会做刚性检查。源 wrist 相对 `link7` 的逐帧位置离散超过
+`wrist_rigid_spread_warn_mm`（默认 1 mm）时，管线会在 `decisions.json` 中记录警告，
+并自动改用标准的虚拟 wrist 观察相机，保证 WebUI 仍能看到夹爪。可以在配置中用
+`wrist_fallback` 覆盖虚拟相机的 `pos`、`quat_wxyz`、`fovy_deg` 或 `near_clip_m`；
+这个回退视角用于交互检查，不代表源视频相机已经完成标定。
 
 ## DROID 父子对象关节输入
 

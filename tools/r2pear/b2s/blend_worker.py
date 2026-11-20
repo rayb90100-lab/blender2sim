@@ -83,6 +83,44 @@ def main():
     else:
         sc.cycles.samples = int(os.environ.get("R2P_BLEND_SAMPLES", 16))
     sc.render.resolution_percentage = 100
+
+    def bake_runtime_modifiers():
+        """Bake display-only modifiers in this disposable runtime worker.
+
+        The source .blend is never saved. Baking Bevel/Weighted Normal/Solidify/
+        Subdivision once removes their repeated dependency-graph evaluation while
+        preserving the evaluated high-resolution mesh for the interactive view.
+        Deform and simulation modifiers are left live because they can depend on
+        the incoming pose.
+        """
+        allowed = {"BEVEL", "WEIGHTED_NORMAL", "SOLIDIFY", "SUBSURF"}
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        baked = 0
+        for ob in list(bpy.data.objects):
+            if ob.type != "MESH" or not ob.modifiers:
+                continue
+            if any(m.type not in allowed for m in ob.modifiers):
+                continue
+            evaluated = ob.evaluated_get(depsgraph)
+            try:
+                mesh = bpy.data.meshes.new_from_object(
+                    evaluated, depsgraph=depsgraph, preserve_all_data_layers=True)
+            except TypeError:
+                mesh = bpy.data.meshes.new_from_object(evaluated, depsgraph=depsgraph)
+            if mesh is None:
+                continue
+            old = ob.data
+            ob.data = mesh
+            ob.modifiers.clear()
+            if old.users == 0:
+                bpy.data.meshes.remove(old)
+            baked += 1
+        if baked:
+            bpy.context.view_layer.update()
+        print(f"[blend_worker] runtime modifier bake: {baked} meshes", file=sys.stderr)
+
+    if os.environ.get("R2P_BLEND_RUNTIME_BAKE", "0") == "1":
+        bake_runtime_modifiers()
     # ---- 物体：去掉 blend 里的近似动画，记下原点偏移 / 缩放 / 朝向差
     objs = {}
     for s, b in B["objects"].items():
@@ -202,8 +240,22 @@ def main():
             wrist.constraints.remove(constraint)
     look = np.mean([np.array(o["ob"].matrix_world)[:3, 3] for o in objs.values()], axis=0)
 
+    last_dynamic_key = None
+
     def apply_state(req):
+        nonlocal last_dynamic_key
         st = req.get("state") or {}
+        dynamic = {
+            "state": st,
+            "bodies": req.get("bodies") or {},
+            "wrist_matrix": req.get("wrist_matrix"),
+        }
+        has_dynamic = bool(dynamic["state"] or dynamic["bodies"] or dynamic["wrist_matrix"])
+        if not has_dynamic:
+            return
+        dynamic_key = json.dumps(dynamic, sort_keys=True, separators=(",", ":"))
+        if dynamic_key == last_dynamic_key:
+            return
         if object_robot is not None and not native_robot:
             object_robot.apply(st.get("q"), float(st["grip"])/GRIP_DRIVER_MAX if st.get("grip") is not None else None)
         for s, M16 in (st.get("objects") or {}).items():
@@ -245,6 +297,7 @@ def main():
         if native_robot and req.get("wrist_matrix") and "wrist" in cams:
             cams["wrist"].matrix_world = Matrix((T_wb @ np.array(req["wrist_matrix"]).reshape(4, 4)).tolist())
         bpy.context.view_layer.update()
+        last_dynamic_key = dynamic_key
 
     def render(req, path):
         cam = str(req.get("cam", "orbit"))
