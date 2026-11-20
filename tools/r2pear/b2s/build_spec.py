@@ -16,6 +16,19 @@ import droid_common as C
 RENDER_W = 512
 SUPPORT_TOL = 0.006
 UPRIGHT_MAX = 15.0
+# A source wrist camera is useful only when its pose is rigid relative to the
+# retargeted link7.  This is the same neutral view used by scenes that have no
+# real wrist stream (for example EgoDex).  It is deliberately wide enough to
+# keep the gripper in view for inspection; it is not a claim about the source
+# camera calibration.
+DEFAULT_VIRTUAL_WRIST = {
+    "mount": "link7",
+    "pos": [-0.07, 0.04, 0.13],
+    "quat_wxyz": [-0.22795750470252582, 0.0286667150165477,
+                  0.9656434859011275, 0.12143415350171008],
+    "fovy_deg": 65.0,
+    "near_clip_m": 0.001,
+}
 PHYSICS = {"timestep": 0.002, "object_solref": [0.01, 1.0], "object_solimp": [0.99, 0.999, 0.001, 0.5, 2],
            "noslip_iterations": 0,
            "noslip_note": "0：避免「圆柱站在方块顶上」类退化接触的不衰减极限环（DEVELOPMENT_LOG §63.5b）。"}
@@ -38,6 +51,16 @@ def intrinsics_px(cam, W, H):
         ref = W
     sx, sy = cam["shift"]
     return {"fx": f, "fy": f, "cx": W / 2 - 0.5 - sx * ref, "cy": H / 2 - 0.5 + sy * ref, "width": W, "height": H}
+
+
+def virtual_wrist_camera(cfg=None):
+    """Return the standard inspection wrist camera, with optional config overrides."""
+    out = dict(DEFAULT_VIRTUAL_WRIST)
+    override = (cfg or {}).get("wrist_fallback") or {}
+    for key in DEFAULT_VIRTUAL_WRIST:
+        if key in override:
+            out[key] = override[key]
+    return out
 
 
 def final_supports(ex, scene, demo, obj):
@@ -230,10 +253,26 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
             spread = float(np.linalg.norm(X[:, :3, 3] - X[0, :3, 3], axis=1).max() * 1000)
             Xm = X[len(X) // 2]
             name = "wrist" if "wrist" not in cams else f"wrist_{len(cams)}"
-            cams[name] = {"mount": "link7", "pos": Xm[:3, 3].tolist(), "quat_wxyz": quat_wxyz(Xm[:3, :3]),
-                          "fovy_deg": fovy, "intrinsics": K, "blend_camera": cn, "source_camera": c["stream"],
-                          "rigid_spread_mm": spread}
-            D.add(f"camera[{name}]", cn, f"挂在机器人末端；相对 link7 逐帧离散 {spread:.3f} mm", warn=spread > 1)
+            spread_limit = float(cfg.get("wrist_rigid_spread_warn_mm", 1.0))
+            if spread > spread_limit:
+                # A moving/fisheye source camera cannot be represented by one
+                # link-mounted MuJoCo camera.  Keep the failure reviewable and
+                # supply a useful inspection view instead of silently showing
+                # an empty or unrelated frame.
+                fallback = virtual_wrist_camera(cfg)
+                cams[name] = {**fallback, "intrinsics": None,
+                              "blend_camera": f"b2s_virtual_{name}", "source_camera": None,
+                              "virtual": True, "source_camera_rejected": c["stream"],
+                              "source_rigid_spread_mm": spread}
+                D.add(f"camera[{name}]", "virtual fallback",
+                      f"源 wrist 相对 link7 离散 {spread:.3f} mm > {spread_limit:g} mm；"
+                      f"源相机 {c['stream']!r} 不可作为刚性腕部相机，改用标准观察视角",
+                      fallback=True, warn=True)
+            else:
+                cams[name] = {"mount": "link7", "pos": Xm[:3, 3].tolist(), "quat_wxyz": quat_wxyz(Xm[:3, :3]),
+                              "fovy_deg": fovy, "intrinsics": K, "blend_camera": cn, "source_camera": c["stream"],
+                              "rigid_spread_mm": spread}
+                D.add(f"camera[{name}]", cn, f"挂在机器人末端；相对 link7 逐帧离散 {spread:.3f} mm")
         else:
             Tc = Tb_inv @ Mc[0]
             name = "agentview" if n_world == 0 else f"agentview_{n_world + 1}"
