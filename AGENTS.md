@@ -20,3 +20,12 @@
 - 常规排查仍无解时，在主入口使用 `--last-resort-speed-diagnosis "已排查项及剩余问题"`。该阶段在常规验证和已启用的环境测试之后运行，默认不执行速度扫描；无需为已授权的诊断再向用户确认。
 - 初态不合格、常规回放缺失或已通过时跳过。原速失败后才对照半速与1/3速度，保留 `stage4_diagnostics/speed-diagnosis.json`，不自动改写轨迹、正常验收结果或发布包。
 - 降速成功仅代表时序适配候选，不能记作原始时序通过，也不能仅据此断定控制器或物理引擎有问题。DROID原始时序验收继续保留。
+
+# acceleration 分支实时预览
+
+- `original` 保持发布前基线；实时加速只在 `acceleration` 分支开发。原始 `.blend`、MuJoCo XML、物理
+  轨迹和 Cycles 高清发布路径不能被运行时优化覆盖。
+- 运行时 worker 可以在一次性进程内烘焙显示修改器并缓存相同状态；它只影响 disposable WebUI
+  进程。镜头节点、agentview/wrist/orbit 控制和 MuJoCo 状态来源保持不变。
+- GPU EEVEE 只作为实时显示引擎；GPU/Cycles 高清视频的设备和采样配置独立。首帧加载/依赖图烘焙
+  与连续帧耗时要分别报告，不能用冷启动平均值宣称高帧率。

@@ -55,6 +55,22 @@ python tools/r2pear/b2s/speed_diagnosis.py --simdir <simdir> --reason "已完成
 不证明原时序通过，不自动证明具体根因；采用适配版时应另设配置并保留原失败报告。
 `retarget_time_scale` 仍可用于明确选择过的场景配置，例如test3现有三倍执行时长版本。
 
+## acceleration 分支的实时 Blender 预览
+
+`acceleration` 分支提供一个仅用于 WebUI 的运行时优化开关，不修改源 `.blend`、MuJoCo
+物理或高清发布。启动时可以在一次性运行副本中烘焙 Bevel、Weighted Normal、Solidify 和
+Subdivision；后续只在 MuJoCo 状态实际变化时更新动态节点，相同状态的镜头请求复用已求值场景。
+实时引擎使用 GPU EEVEE，Cycles 仍保留给原始高清发布。
+
+```bash
+bash tools/r2pear/acceleration-web.sh \
+  outputs/test5-release-ready/interactive/scene 8195
+```
+
+该脚本的第二个参数是端口，不需要额外的 `start` 参数；它不会保存修改后的 Blender 文件。
+首次切换仍需加载和烘焙场景；之后的镜头请求才体现
+运行时优化。若驱动、OptiX/EGL 或材质不兼容，回到原有 `local/test5-service.sh` 即可。
+
 ## Blender 转仿真的初态验收
 
 不能只看渲染外观或静置后的稳定性。test4 曾因陪衬红环退化成实心箱体，在机器人动作前把蓝环推偏约 23 mm。
