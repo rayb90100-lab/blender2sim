@@ -840,3 +840,6 @@ blender2sim 本地修复日志
   新增 `pipeline/` 包负责加载上下文、具身识别、场景解析、演示轨迹、spec 写出、验证、环境验收和末尾速度诊断。
 - 原有领域模块和处理顺序保持不变；阶段通过 `PipelineOptions` / `PipelineContext` 传递，后续可加入输入适配器或发布阶段。
 - 用 DROID_0071 Blender 资产做 `--skip-validate` 端到端 smoke，输出 stage0 提取/spec 成功；全套 b2s 回归 59 项通过。
+- 随后用新入口完整跑 test1～test5（均生成 spec、V1/V2、末尾速度诊断；test4/5 还生成三路 V3 对照）：
+  编排进程五组均正常退出并写出 stage0/stage1/stage4；test1/2/4 的 V2、test2/4/5 的 V1 保持各自已有物理/初态问题，
+  test3 V1/V2 与 test5 V2 通过。test1/2/3 因源视频命名与相机流不匹配跳过 V3，test4/5 的三路 V3 均生成。
