@@ -37,6 +37,7 @@ import droid_common as C  # noqa: E402
 import env as E  # noqa: E402
 import oracle as O  # noqa: E402
 import predicates as PR  # noqa: E402
+import spec as SP  # noqa: E402
 
 
 class _OracleCancelled(Exception):
@@ -69,7 +70,7 @@ class BlenderProxy:
         worker = os.path.join(HERE, "blender_worker.py")
         # b2s 从 blend 生成的环境：直接驱动原 blend（资产/材质/灯光全保留），见 b2s/blend_worker.py
         try:
-            _sp = json.load(open(os.path.join(self.testdir, "stage0_spec", "task_spec.json")))
+            _sp = SP.load(os.path.join(self.testdir, "stage0_spec", "task_spec.json"))
             if _sp.get("blend_binding") and os.path.exists(_sp.get("source", {}).get("blend", "")):
                 worker = os.path.join(HERE, "b2s", "blend_worker.py")
         except (OSError, ValueError):
@@ -141,6 +142,7 @@ class Sim:
         self.init_id = init_id
         self.width, self.height = width, height
         self.mu = threading.RLock()
+        self.cmd_mu = threading.Lock()
         self.cmd_q = []
         self.running = True
         self.note = ""
@@ -179,16 +181,27 @@ class Sim:
                 except Exception:
                     pass
             self.log = []
-            self.note = "reset"
+            self.reset_count = getattr(self, "reset_count", 0) + 1
+            self.note = f"已重置场景（{self.reset_count}）"
+            self.frames = {}
+            self.blender_live_frame = None
+            self.last_source_replay = None
+            self.pose_snapshot = self._pose_snapshot_locked()
             ok, det = PR.evaluate(self.env.m, self.env.d, self.env.spec)
             self.last_eval = {"success": ok, "predicates": det}
 
     # ---------- 命令 ----------
     def submit(self, cmd):
-        self.cmd_q.append(cmd)
+        with self.cmd_mu:
+            if isinstance(cmd, dict) and cmd.get("t") == "reset":
+                self.cmd_q.clear()
+                if getattr(self, "_oracle_running", False):
+                    self._oracle_cancel = True
+            self.cmd_q.append(cmd)
 
     def drain(self, limit=1):
-        out, self.cmd_q = self.cmd_q[:limit], self.cmd_q[limit:]
+        with self.cmd_mu:
+            out, self.cmd_q = self.cmd_q[:limit], self.cmd_q[limit:]
         return out
 
     # ---------- 状态快照 ----------
@@ -207,10 +220,17 @@ class Sim:
                 "note": self.note,
                 "init_id": self.init_id,
                 "queue": len(self.cmd_q),
+                "reset_count": self.reset_count,
+                "automatic_action_label": e.spec.get('web_playback', {}).get('label', '让 oracle 解一遍'),
+                "automatic_action_help": (e.spec.get('web_playback', {}).get('help', '读取原始关节和夹爪指令；物体仍由物理驱动。')
+                                          if e.spec.get('web_playback', {}).get('type') == 'source_demo'
+                                          else 'oracle 是特权脚本（用真值位姿），只用于可解性演示。'),
+                "source_replay": getattr(self, 'last_source_replay', None),
             }
 
     # ---------- 动作执行 ----------
     def do_action(self, act):
+        self._cancel_oracle()
         with self.mu:
             e = self.env
             try:
@@ -228,75 +248,52 @@ class Sim:
         oracle 一跑（几秒）HTTP 线程的渲染请求全被阻塞，第三张图就冻住了。
         改为把锁下沉到每个控制步内部，步与步之间释放，渲染线程就能插进来。
         """
+        if self.env.spec.get('web_playback', {}).get('type') == 'source_demo':
+            return self.do_source_replay()
         e = self.env
         on = next((p for p in e.spec["success"] if p["pred"] == "on"), None)
         if on is None:
             self.note = "spec 里没有 on 谓词，无法自动解题"
             return
         orig = e.step
-        # 60 Hz 节奏回放：oracle 原本 0.56 s 跑完 68 步（≈120 步/秒），一闪而过。
-        # 按控制步节流到 60 步/秒，看得清它在做什么。
         interval = 1.0 / max(float(getattr(self, "oracle_hz", 80.0)), 1.0)
 
-        # 60 Hz 节奏回放：oracle 本身 0.56 s 跑完 68 步（约 120 步/秒），
-        # 直接跑完会一闪而过。这里按控制步节流到 60 步/秒，看清楚它在做什么。
-        # 用 PoseController.move 的 on_control_step 回调挂节流，不改 controller.py
-        # （test5 的 check_demo_replay / stress 也 import 它）。
         def paced_step(action):
-            """oracle 的每个动作：按 60 Hz 节奏回放，但不改变轨迹本身。
-
-            踩过的三个坑，别再重复：
-            1. 把同一个**增量动作**重复执行 → env.step 每次新建 PoseController
-               从头规划，机械臂多走好几倍。
-            2. 整个动作放进 `with self.mu` → 渲染线程要等整段（实测 275 ms），
-               第三张图冻住。
-            3. 用 `move(1)` 循环推进 → 每次 move 都从当前位置重算路点，
-               只前进 1/5 的步长，结果 68 步变成 336 步（实测 ×4.94），
-               轨迹节奏被改掉了。
-
-            正解：**不改 move 的步长**，只挂在它的 `on_control_step` 回调上，
-            每个控制步结束后睡到下一个 1/60 s。轨迹与原始 oracle 逐位相同，
-            只是放慢到肉眼能看清。
-            """
-            last = [0.0]
-
             def paced_cb(_fmax):
-                if self.blender_mode:
-                    # **每一步都等这一帧真的画出来**，不丢帧。
-                    #
-                    # 为什么要自己渲染、而不是等前端来取：前端是异步拉帧的，
-                    # 它的节奏由浏览器和服务端往返决定（实测 32 轮 vs 59 步），
-                    # oracle 若只等"前端取走一帧"，仍会跑在画面前面。
-                    # 这里由 oracle **主动**渲染当前状态，渲染返回即可安全推进，
-                    # 前端下次来取时命中的就是最新帧。
-                    #
-                    # 代价：oracle 总时长 ≈ 步数 × 单帧渲染时间（59 × 118 ms ≈ 7 s）。
-                    # 这正是用户要的"Blender 慢可以等，不要省略帧"。
-                    try:
-                        self._render_now()
-                    except Exception:
-                        pass          # 渲染失败不该让 oracle 崩；下一帧会重试
-                    return
-                now = time.time()
-                dt = now - last[0]
-                if last[0] and dt < interval:
-                    time.sleep(interval - dt)
-                last[0] = time.time()
+                # Physics holds the lock; release it between control steps so
+                # reset, state requests and rendering remain responsive.
+                self.pose_snapshot = self._pose_snapshot_locked()
+                self.mu.release()
+                try:
+                    if self._oracle_cancel:
+                        raise _OracleCancelled()
+                    if self.blender_mode:
+                        try:
+                            self._render_now()
+                        except Exception:
+                            # A failed frame must not change the physics action.
+                            pass
+                    else:
+                        time.sleep(interval)
+                    if self._oracle_cancel:
+                        raise _OracleCancelled()
+                finally:
+                    self.mu.acquire()
 
-            if getattr(self, "_oracle_cancel", False):
-                raise _OracleCancelled()
             with self.mu:
+                if self._oracle_cancel:
+                    raise _OracleCancelled()
                 ctl = CT.PoseController(e.robot, action)
-            outcome, n, reason = ctl.move(e.budget - e.used_steps, on_control_step=paced_cb)
-            e.used_steps += n
-            ok, detail = PR.evaluate(e.m, e.d, e.spec)
-            done = ok or e.used_steps >= e.budget
-            if ok:
-                outcome = "done"
-            res = e._result([None] * n, outcome, done, success=ok)
-            res["stop_reason"] = reason
-            res["predicates"] = detail
-            return res
+                outcome, n, reason = ctl.move(e.budget - e.used_steps, on_control_step=paced_cb)
+                e.used_steps += n
+                ok, detail = PR.evaluate(e.m, e.d, e.spec)
+                done = ok or e.used_steps >= e.budget
+                if ok:
+                    outcome = "done"
+                res = e._result([None] * n, outcome, done, success=ok)
+                res["stop_reason"] = reason
+                res["predicates"] = detail
+                return res
 
         e.step = paced_step
         try:
@@ -309,6 +306,78 @@ class Sim:
         finally:
             e.step = orig
 
+    def do_source_replay(self):
+        """Replay recorded joint/gripper commands, without oracle planning or object playback."""
+        import hashlib
+        from pathlib import Path
+        import mujoco
+        import sim as S
+        e = self.env
+        path = Path(self.spec_path).parent/'demo.npz'
+        config = e.spec['web_playback']
+        replay_label = config.get('label', '回放原始 DROID 轨迹')
+        self.last_source_replay = {'complete': False, 'source': 'demo.npz'}
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != config['demo_sha256']:
+                raise ValueError('原始轨迹文件校验不一致')
+            with np.load(path, allow_pickle=False) as archive:
+                q, g = archive['q'].copy(), archive['g_cmd'].copy()
+                fps = float(archive['fps'])
+            if (q.ndim != 2 or q.shape[1] != 7 or len(q) < 2 or g.shape != (len(q),)
+                    or not np.isfinite(q).all() or not np.isfinite(g).all()
+                    or not np.isfinite(fps) or fps <= 0 or np.any((g < 0) | (g > 1))):
+                raise ValueError('原始轨迹格式或数值无效')
+            arm, grip = S.arm_actuators(e.m), S.grip_actuator(e.m)
+            sub = round(1/fps/e.m.opt.timestep)
+            if sub < 1:
+                raise ValueError('轨迹采样率超过当前物理步频')
+            def update_view():
+                if self._oracle_cancel:
+                    raise _OracleCancelled()
+                if getattr(self, 'source_replay_pacing', True):
+                    started = time.monotonic()
+                    if self.blender_mode:
+                        try:
+                            self._render_now()
+                        except Exception as exc:
+                            self.renderer_error = str(exc)
+                    time.sleep(max(0., 1/fps - (time.monotonic()-started)))
+            for frame in range(len(q)-1):
+                if self._oracle_cancel:
+                    raise _OracleCancelled()
+                with self.mu:
+                    for k in range(sub):
+                        alpha = k/sub
+                        e.d.ctrl[arm] = (1-alpha)*q[frame] + alpha*q[frame+1]
+                        e.d.ctrl[grip] = 255*((1-alpha)*g[frame] + alpha*g[frame+1])
+                        mujoco.mj_step(e.m, e.d)
+                    e.used_steps = frame+1
+                    self.pose_snapshot = self._pose_snapshot_locked()
+                    self.note = f'{replay_label}：{frame+2}/{len(q)} 帧'
+                update_view()
+            for k in range(round(1/e.m.opt.timestep)):
+                if self._oracle_cancel:
+                    raise _OracleCancelled()
+                with self.mu:
+                    mujoco.mj_step(e.m, e.d)
+                    if (k+1) % sub == 0:
+                        self.pose_snapshot = self._pose_snapshot_locked()
+                if (k+1) % sub == 0:
+                    update_view()
+            with self.mu:
+                ok, predicates = PR.evaluate(e.m, e.d, e.spec)
+                self.pose_snapshot = self._pose_snapshot_locked()
+                self.last_source_replay = {'complete': True, 'source': 'demo.npz', 'sha256': digest,
+                    'frames': len(q), 'source_fps': fps, 'physics_seconds_per_interval': sub*e.m.opt.timestep,
+                    'success': bool(ok), 'predicates': predicates}
+                self.note = f'{replay_label}结束：{"任务成功" if ok else "未完成任务"}（{len(q)} 帧）'
+        except _OracleCancelled:
+            self.note = '原始轨迹回放已取消'
+        except Exception as exc:
+            self.last_source_replay.update(error=f'{type(exc).__name__}: {exc}')
+            self.note = f'原始轨迹回放失败：{type(exc).__name__}: {exc}'
+
     def _render_now(self):
         """让 Blender 画一帧当前状态（oracle 在 Blender 模式下每步调用）。
 
@@ -320,13 +389,14 @@ class Sim:
         if Bp is None or not Bp.alive():
             return
         with self.mu:
-            pose = getattr(self, "pose_snapshot", None)
-            # 只渲染 agentview：它是主视角。wrist 由前端按自己的节奏取，
-            # 两路都同步渲染会让每步耗时翻倍，没有意义。
-            data = Bp.render(0.0, 0.0, 0.6, 384, 216, 72, cam="agentview", pose=pose)
-            self.blender_live_frame = (data, time.time())
+            generation = self.reset_count
+            pose = self._pose_snapshot_locked()
+        data = Bp.render(0.0, 0.0, 0.6, 384, 216, 72, cam="agentview", pose=pose)
+        with self.mu:
+            if self.reset_count == generation:
+                self.blender_live_frame = (data, time.time())
 
-    def _cancel_oracle(self, wait_s=3.0):
+    def _cancel_oracle(self, wait_s=20.0):
         """请求 oracle 停下并等它退出。reset 必须调用，否则两个线程抢同一个 env。"""
         if not getattr(self, "_oracle_running", False):
             return
@@ -334,6 +404,8 @@ class Sim:
         t0 = time.time()
         while getattr(self, "_oracle_running", False) and time.time() - t0 < wait_s:
             time.sleep(0.02)
+        if getattr(self, "_oracle_running", False):
+            raise TimeoutError("动作仍在停止中，请稍后重置")
         self._oracle_cancel = False
 
     def start_oracle_async(self):
@@ -348,6 +420,9 @@ class Sim:
         if getattr(self, "_oracle_running", False):
             self.note = "oracle 正在执行"
             return
+        if self.env.spec.get('web_playback', {}).get('type') == 'source_demo':
+            # Start from the same scene initialization as the offline replay.
+            self.reset()
         self._oracle_running = True
         self._oracle_cancel = False
 
@@ -357,8 +432,9 @@ class Sim:
             finally:
                 self._oracle_running = False
 
+        self.note = (self.env.spec['web_playback'].get('label', '回放原始 DROID 轨迹') + '中…' if self.env.spec.get('web_playback', {}).get('type') == 'source_demo'
+                     else "oracle 执行中…")
         threading.Thread(target=job, daemon=True).start()
-        self.note = "oracle 执行中…"
 
     # ---------- 线程 ----------
     def worker(self):
@@ -414,7 +490,8 @@ class Sim:
         with self.mu:
             e = self.env
             key = (w, h)
-            if getattr(self, "_orb_r", None) is None or getattr(self, "_orb_size", None) != key:
+            if (getattr(self, "_orb_r", None) is None or getattr(self, "_orb_size", None) != key
+                    or getattr(self, "_orb_model", None) is not e.m):
                 if getattr(self, "_orb_r", None) is not None:
                     try:
                         self._orb_r.close()
@@ -422,6 +499,7 @@ class Sim:
                         pass
                 self._orb_r = mujoco.Renderer(e.m, h, w)
                 self._orb_size = key
+                self._orb_model = e.m
             if getattr(self, "_orb_cam", None) is None:
                 # 只初始化一次（不能放在「尺寸变化」分支里：拖动中切分辨率会把视角重置）
                 cid = e.m.camera("agentview").id
@@ -456,6 +534,40 @@ class Sim:
                     pass
             self._orb_r = None
 
+    def _pose_snapshot_locked(self):
+        """Capture the current model state while self.mu is held."""
+        e = self.env
+        m, d = e.m, e.d
+        bodies = {}
+        for g in range(m.ngeom):
+            mid = m.geom_matid[g]
+            rgba = m.mat_rgba[mid] if mid >= 0 else m.geom_rgba[g]
+            if m.geom_group[g] > 2 or float(rgba[3]) <= 0.01:
+                continue
+            T = np.eye(4)
+            T[:3, :3] = d.geom_xmat[g].reshape(3, 3)
+            T[:3, 3] = d.geom_xpos[g]
+            bodies[f"geom{g}"] = T.ravel().tolist()
+        wrist = None
+        if "wrist" in e.spec["cameras"]:
+            wid = m.camera("wrist").id
+            T = np.eye(4)
+            T[:3, :3] = d.cam_xmat[wid].reshape(3, 3)
+            T[:3, 3] = d.cam_xpos[wid]
+            wrist = T.ravel().tolist()
+        state = {"q": d.qpos[C.arm_qadr(m)].tolist(), "objects": {}}
+        try:
+            state["grip"] = float(d.qpos[m.joint(f"{C.GRIP_PREFIX}right_driver_joint").qposadr[0]])
+        except KeyError:
+            state["grip"] = None
+        for name in e.spec["objects"]:
+            bid = m.body(name).id
+            T = np.eye(4)
+            T[:3, :3] = d.xmat[bid].reshape(3, 3)
+            T[:3, 3] = d.xpos[bid]
+            state["objects"][name] = T.ravel().tolist()
+        return {"bodies": bodies, "wrist_matrix": wrist, "state": state}
+
     def renderer_thread(self, fps=20):
         """后台流：三张图一起渲染（agentview / wrist / orbit）。
 
@@ -468,6 +580,7 @@ class Sim:
         import cv2
         import mujoco
         r = None
+        render_model = None
         cam = mujoco.MjvCamera()
         try:
             while self.running:
@@ -476,8 +589,11 @@ class Sim:
                     e = self.env
                     if e is None or getattr(e, "m", None) is None:
                         continue          # reset 中途，跳过这一帧
-                    if r is None:
+                    if r is None or render_model is not e.m:
+                        if r is not None:
+                            r.close()
                         r = mujoco.Renderer(e.m, self.height, self.width)
+                        render_model = e.m
                         # 初始视角：lookat 取**场景中心**（物体质心均值），绕它转才不会转出画面。
                         # 方位角沿用 agentview 的水平方向，俯仰角与距离用固定初值 ——
                         # 不要用「相机到质心的方向」反算，那条方向与 agentview 视线不同，
@@ -508,47 +624,11 @@ class Sim:
                 for c, f in frames.items():
                     ok, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 82])
                     jpg[c] = buf.tobytes()
-                # 给 Blender 子进程准备位姿快照（它自己没有 MuJoCo 模型）。
-                # 只取可见 geom：group<=2、alpha>0.01、名字能对应到 Blender 对象。
-                pose = {}
                 with self.mu:
-                    e2 = self.env              # 重新取：e 可能是 reset 前的旧对象
-                    mm, dd = e2.m, e2.d
-                    for g in range(mm.ngeom):
-                        if mm.geom_group[g] > 2:
-                            continue
-                        mid = mm.geom_matid[g]
-                        rgba = mm.mat_rgba[mid] if mid >= 0 else mm.geom_rgba[g]
-                        if float(rgba[3]) <= 0.01:
-                            continue
-                        # key 必须与 blender_live.collect() 生成的对象名一致：
-                        # 机械臂的 geom 在 MuJoCo 里没有名字，旧代码在这里 `continue`
-                        # 把它们全跳过了，Blender 里机械臂就永远停在初始姿态。
-                        M = np.eye(4)
-                        M[:3, :3] = dd.geom_xmat[g].reshape(3, 3)
-                        M[:3, 3] = dd.geom_xpos[g]
-                        pose[f"geom{g}"] = [float(x) for x in M.ravel()]
-                    wid = mm.camera("wrist").id if mm.ncam and mm.camera("wrist") else None
-                    wm = None
-                    if wid is not None:
-                        WM = np.eye(4)
-                        WM[:3, :3] = dd.cam_xmat[wid].reshape(3, 3)
-                        WM[:3, 3] = dd.cam_xpos[wid]
-                        wm = [float(x) for x in WM.ravel()]
-                    # 状态快照（b2s/blend_worker 驱动原 blend 用；旧 worker 忽略此字段）
-                    state = {"q": [float(x) for x in dd.qpos[C.arm_qadr(mm)]], "objects": {}}
-                    try:
-                        state["grip"] = float(dd.qpos[mm.joint(f"{C.GRIP_PREFIX}right_driver_joint").qposadr[0]])
-                    except KeyError:
-                        state["grip"] = None
-                    for on in e2.spec["objects"]:
-                        b_ = mm.body(on).id
-                        T_ = np.eye(4)
-                        T_[:3, :3] = dd.xmat[b_].reshape(3, 3)
-                        T_[:3, 3] = dd.xpos[b_]
-                        state["objects"][on] = [float(x) for x in T_.ravel()]
+                    if self.env is not e:
+                        continue
                     self.frames = jpg
-                    self.pose_snapshot = {"bodies": pose, "wrist_matrix": wm, "state": state}
+                    self.pose_snapshot = self._pose_snapshot_locked()
                 time.sleep(1.0 / fps)
               except Exception:
                 # 单帧失败只记一笔，不终止渲染线程 ——
@@ -695,9 +775,9 @@ pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1
       <h3>其它</h3>
       <div class="grid">
         <button class="warn wide" onclick="post('reset')">重置场景</button>
-        <button class="go wide" onclick="post('oracle')">让 oracle 解一遍</button>
+        <button id="autoRun" class="go wide" onclick="post('oracle')">自动执行</button>
       </div>
-      <div class="hint">oracle 是特权脚本（读真值位姿），只用来看「这个场景能不能解」，不是策略。</div>
+      <div id="autoHelp" class="hint"></div>
     </div>
 
     <div class="card">
@@ -746,6 +826,8 @@ async function poll(){
     const r = await fetch('/state'); const d = await r.json();
     const p = d.state.arm, g = d.state.gripper;
     document.getElementById('instr').textContent = d.instruction;
+    document.getElementById('autoRun').textContent = d.automatic_action_label || '让 oracle 解一遍';
+    document.getElementById('autoHelp').textContent = d.automatic_action_help || '';
     document.getElementById('pos').textContent =
       `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) cm`;
     document.getElementById('grip').textContent = g.width.toFixed(1)+' cm';
@@ -832,8 +914,12 @@ let inflight = false, dirty = true, preview = false, lastQ = null;
 // 所以默认用 MuJoCo；切到 Blender 后拖动会变卡，这是引擎速度决定的上限。
 let useBlender = false;
 let blenderTimer = null;
+// Drop late responses across mode switches, including Blender -> MuJoCo -> Blender.
+let viewGeneration = 0;
 function toggleBlender(){
   useBlender = !useBlender;
+  viewGeneration++;
+  dirty = true;
   const b = document.getElementById('bswitch');
   const ot = document.getElementById('orbitTag');
   b.classList.toggle('on', useBlender);
@@ -871,16 +957,17 @@ let fixedInflight = 0;
 function drawFixedBlender(){
   if(!useBlender || fixedInflight > 0) return;
   fixedInflight = 1;
+  const generation = viewGeneration;
   const views = [['c0','agentview'], ['c1','wrist']];
   let i = 0;
   const next = () => {
-    if(!useBlender || i >= views.length){ fixedInflight = 0; return; }
+    if(!useBlender || generation !== viewGeneration || i >= views.length){ fixedInflight = 0; return; }
     const [id, view] = views[i++];
     fetch(`/frame?cam=blender&view=${view}&w=384&h=216&quality=72&_=${performance.now()}`,
           {cache:'no-store'})
       .then(r => r.ok ? r.blob() : null)
       .then(b => {
-        if(!b) return;
+        if(!b || !useBlender || generation !== viewGeneration) return;
         const el = document.getElementById(id);
         if(el.dataset.url) URL.revokeObjectURL(el.dataset.url);
         const u = URL.createObjectURL(b);
@@ -904,10 +991,11 @@ function drawOrbit(){
   if(inflight){ dirty = true; return; }
   if(!dirty) return;
   dirty = false; inflight = true;
+  const generation = viewGeneration;
   fetch(orbitQS(), {cache:'no-store'})
     .then(r => r.ok ? r.blob() : null)
     .then(b => {
-      if(b){
+      if(b && generation === viewGeneration){
         if(img.dataset.url) URL.revokeObjectURL(img.dataset.url);
         const u = URL.createObjectURL(b);
         img.dataset.url = u; img.src = u;
@@ -1024,7 +1112,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.sim.orbit.update({"azimuth": az, "elevation": el, "distance": dist})
                     # 通知 oracle：这一步已经画出来了，可以走下一步（见 oracle 的步进闸门）
                     self.sim.render_seq += 1
-                    self.sim.blender_mode = True
                     return self._send(200, data, "image/jpeg")
                 except Exception as ex:
                     return self._send(500, f"blender render failed: {ex}".encode())
@@ -1125,7 +1212,9 @@ def main():
         request_queue_size = 128
         daemon_threads = True
         allow_reuse_address = True
-        address_family = socket.AF_INET6          # 双栈：同时吃 IPv4 和 IPv6
+        # Explicit IPv4 bind addresses (including loopback) need an IPv4 socket.
+        address_family = (socket.AF_INET if a.host not in ("0.0.0.0", "", "::")
+                          and ":" not in a.host else socket.AF_INET6)
 
         def server_bind(self):
             # 双栈必须显式关掉 IPV6_V6ONLY，否则只监听 ::，IPv4 连不进来。

@@ -1,5 +1,6 @@
 """task_spec.json 的读取与基本校验。"""
 import json
+from pathlib import Path
 
 PREDICATES = {"on": ("obj", "support"), "released": ("obj",), "upright": ("obj",)}
 
@@ -28,6 +29,12 @@ def grip_half(o):
 
 def load(path):
     spec = json.load(open(path))
+    blend = spec.get("source", {}).get("blend")
+    if blend and not Path(blend).is_absolute():
+        spec["source"]["blend"] = str((Path(path).resolve().parent / blend).resolve())
+    model = spec.get('model_xml')
+    if model and not Path(model['path']).is_absolute():
+        model['path'] = str((Path(path).resolve().parent / model['path']).resolve())
     assert spec.get("schema_version") == 1, "unknown schema_version"
     names = set(spec["objects"])
     for p in spec["success"]:

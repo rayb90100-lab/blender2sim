@@ -1,0 +1,47 @@
+test4 圆环碰撞资料核查 | 2026-11-19
+====================================
+
+本机 MuJoCo 3.3.7；以下查阅对应版本官方文档、官方示例和 CoACD 作者仓库。
+下文保留最初资料核查阶段的结论。后续已实际比较 CoACD/SDF，实验结果和限制见
+test4_collision_experiments.txt；不能再将“尚未实施”的历史阶段描述当作当前进度。
+
+1. 直接导入整只圆环 mesh 不足以保留碰撞孔洞
+   普通 mesh 可以显示凹几何，但碰撞使用凸包。官方建议将非凸物体拆成多个凸 geom，
+   挂在同一个 body 下；因此整体仍是一个刚体，不需要用多个自由物体拼接。
+   https://mujoco.readthedocs.io/en/3.3.7/computation/index.html#checking
+   https://mujoco.readthedocs.io/en/3.3.7/computation/index.html#convex-decomposition
+
+2. 凸分解（建议的通用路线）
+   CoACD 可将三角网格分解成多个凸包，也是官方文档列出的自动化工具。
+   https://github.com/SarahWeiii/CoACD
+   这是可迁移到后续带孔、凹槽物体的路线，不局限于 test4 圆环。规则圆环也可以程序化构造
+   分段凸块作为受控基线；胶囊链只是更粗略的近似，会改变环壁/底面的接触几何。
+   需要验证孔洞没有被凸块跨接，环壁厚度和指垫接触区正确，分段接缝没有造成卡住或抖动。
+   建议视觉继续保留原 Blender 网格，碰撞使用凸块，质量/惯量只计一次，避免重叠块重复加质量。
+   这是针对本项目的工程建议，并非已完成的性能或成功率结论。
+
+3. 官方 SDF 圆环（可作为对照）
+   MuJoCo 3.3.7 已提供 mujoco.sdf.torus，不是只能依赖外部第三方插件。
+   radius1 为大半径，radius2 为管截面半径；源码是圆截面理想 torus 的距离函数。
+   https://raw.githubusercontent.com/google-deepmind/mujoco/3.3.7/model/plugin/sdf/torus.xml
+   https://raw.githubusercontent.com/google-deepmind/mujoco/3.3.7/plugin/sdf/torus.cc
+   SDF 的非凸接触通过多起点梯度搜索寻找接触位置；起点和迭代数分别受 sdf_initpoints、
+   sdf_iterations 控制，需要测量接触覆盖、稳定性与开销，不能仅凭外观平滑就认定更适合抓取。
+   https://mujoco.readthedocs.io/en/3.3.7/programming/extension.html#sdf
+   本机 Python 包含 libsdf_plugin.so，但本轮没有编译/运行该模型，也未证明它适用于本场景。
+   test4 蓝环包含防滑凸纹，并非精确理想 torus，直接用内外径拟合会忽略这些细节。
+
+4. 本场景的判断与建议（推论，待实测）
+   采样求值网格约：外径 92.71 mm，内径 37.34 mm，高 26.42 mm；单边环壁径向宽约 27.69 mm。
+   源实测夹爪停止开口约 28.5 mm，腕部渲染显示抓取环壁，因此外径大于 85 mm 不代表抓不住。
+   旧管线按物体整体宽度猜夹持开口，不能直接用于圆环；应核对实际内外接触面。
+   优先对完整求值网格做凸分解，保留中孔；官方 SDF torus 可作为理想环基线对照。
+   若开始物理阶段，顺序建议：
+     a) 孔内无虚假碰撞、环壁存在碰撞、尺寸与质量/惯量检查；
+     b) 桌面/托盘静置及掉落稳定性；
+     c) 固定机械臂姿态下夹持接触与松手；
+     d) 原始 q + gripper command 全程回放；
+     e) 比较穿透、稳定性、接触数量与耗时，再决定是否需要替换方案。
+   建议先保持原始动作与既有接触参数，避免把几何错误混进摩擦/控制调参。
+
+限制：这份资料是方案依据，不是物理验收；当前 runs/test4-input 的简单碰撞占位不可发布。

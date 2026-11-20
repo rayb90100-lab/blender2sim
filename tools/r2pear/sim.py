@@ -23,10 +23,26 @@ def _quat_z(yaw):
     return [float(np.cos(yaw / 2)), 0.0, 0.0, float(np.sin(yaw / 2))]
 
 
-def build(spec, overrides=None, render_size=None):
+def build(spec, overrides=None, render_size=None, return_spec=False):
     """返回 (model, data)。overrides: {obj: {"center": [...], "yaw_rad": ...}}，以及可选 "table_dz"。"""
     import mujoco
     overrides = overrides or {}
+    if spec.get('model_xml'):
+        import hashlib
+        from pathlib import Path
+        asset = spec['model_xml']
+        path = Path(asset['path'])
+        if hashlib.sha256(path.read_bytes()).hexdigest() != asset['sha256']:
+            raise ValueError(f'MJCF checksum mismatch: {path}')
+        if overrides:
+            raise ValueError('Packaged MJCF does not yet support randomized initial-state overrides')
+        model_spec = mujoco.MjSpec.from_file(str(path))
+        if render_size:
+            model_spec.visual.global_.offwidth = max(render_size[0], 640)
+            model_spec.visual.global_.offheight = max(render_size[1], 480)
+        model = model_spec.compile()
+        data = mujoco.MjData(model)
+        return (model, data, model_spec) if return_spec else (model, data)
     assert abs(spec["robot"]["mount_yaw_deg"] - C.MOUNT_YAW_DEG) < 1e-9, "spec 与 droid_common 安装角不一致"
     s = C.build_spec()
     # 注意：**不要**在这里应用 spec["robot"]["T_world_base"]。
@@ -44,6 +60,10 @@ def build(spec, overrides=None, render_size=None):
     solimp_override = [float(x) for x in solimp_override.split(",")] if solimp_override else phys.get("object_solimp")
     s.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     s.option.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
+    # Flat cylinder/box contacts can wobble with a single contact point.
+    # Store this choice in the task spec so validation and the UI agree.
+    if phys.get("multiccd", False):
+        s.option.enableflags |= int(mujoco.mjtEnableBit.mjENBL_MULTICCD)
     # noslip_iterations 由 spec.physics 决定，**不从代码默认值隐式继承**。
     # test5 的全部结论（50 个初始状态可解性、协议压测、9 组接触扫描、§62.4/§62.6 的数字）
     # 都是在 noslip=3 下得出的，spec 里必须显式写 3 才能重现。
@@ -186,7 +206,8 @@ def build(spec, overrides=None, render_size=None):
     s.visual.global_.offwidth = max(w, 640)
     s.visual.global_.offheight = max(h, 480)
     m = s.compile()
-    return m, mujoco.MjData(m)
+    d = mujoco.MjData(m)
+    return (m, d, s) if return_spec else (m, d)
 
 
 def reset(m, d, spec, settle_s=0.5):

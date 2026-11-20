@@ -31,6 +31,20 @@ def _rz(a):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
 
 
+def test_visual_binding_preserves_excluded_background():
+    """Excluding furniture from physics must not hide it in Blender."""
+    import build_spec
+    ex = Extract(os.path.join(_REPO, "evidence", "test2", "sim", "stage0_extract", "extract.json"))
+    root = "UMI  |  记录的末端坐标系 · 6DoF"
+    furniture = "Rear table | 深木工作台"
+    scene = {"objects": {}, "robot_set": [root, furniture]}
+    binding = build_spec.blend_binding(ex, scene, {}, None, {"root": root})
+    assert root in binding["hide"]
+    assert set(ex.descendants(root)) <= set(binding["hide"])
+    assert furniture not in binding["hide"]
+    assert "Saucer  |  蓝色杯碟" not in binding["hide"]
+
+
 def test_joint_sign_offset_repair():
     """把 J3 的旋转取反、J5 加 30° 零点偏移后，FK 校验必须失败并自动拟合回 s=-1 / c=-30°。"""
     ex = Extract(EXTRACT)

@@ -1,0 +1,22 @@
+test5 公共发布完成 | 2026-11-20
+==============================
+公共目录：/root/data/simulation/DROID-红甜椒从盘中取出放到桌面-test5
+本地同源齐套包：outputs/test5-release-ready/
+WebUI：服务器8095 → 本机9005；local/test5-service.sh默认使用本地齐套包的interactive/scene。
+状态：用户明确确认发布后，原子写入公共目录；473个文件逐个校验通过，与本地齐套包一致。
+记录：local/test5-publication.json；没有提交或推送GitHub。
+
+完整交付：展示GLB/回放JSON/MuJoCo视频、interactive/及可迁移归档、Blender高清视频，
+registration-report.json、initialization-report.json、浏览器报告、来源与校验清单。
+Blender视频：1920×1080、30fps、Cycles64samples、OptiX RTX4090，277帧/9.233333秒；
+141个物理记录状态，实际渲染140个采样所需状态。全帧、ffprobe、完整解码和来源校验通过。
+首/末/搬运阶段图像已人工检查。GLB红色甜椒材质修复后重新导出，最终浏览器67通道、
+maxPositionError=0，无JS错误，完整原始DROID回放成功，reset_steps=0，三路Blender有效。
+
+旧outputs/test5-delivery的物理有效，但GLB程序化红色材质丢失；它不是最终发布包。
+最终底包outputs/test5-delivery-final，与初版物理轨迹、模型、spec和源blend逐字节一致。
+等价证据local/test5-hd-source-equivalence.json；高清沿用这些相同物理状态并重新编码绑定最终包。
+最终浏览器报告local/test5-delivery-browser-final/browser-validation.json。
+
+物理原始轨迹成功、37项b2s测试通过；显式初态修正前失败和局部配准告警保留。
+单初态验证不是完整相机标定或随机初态全面可解。详细假设见test5_RELEASE_NOTES.txt及公共SCENE_NOTES.txt。

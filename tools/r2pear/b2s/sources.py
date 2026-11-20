@@ -32,6 +32,40 @@ DEFAULT_ROOTS = ([os.path.join(_root, "datasets")] if _root else []) + \
 
 
 # ------------------------------------------------------------------ DROID
+def load_droid_npz(path, q_ref, frames, fps):
+    """Read compact modeling data only after checking its joint/time alignment."""
+    import hashlib
+    import json
+    from pathlib import Path
+    path = Path(path)
+    with np.load(path, allow_pickle=False) as z:
+        q = z['observation.joint_position']
+        if q_ref is None or q.shape != np.shape(q_ref) or not np.isfinite(q).all():
+            raise ValueError('DROID NPZ requires an aligned robot joint trajectory')
+        err = float(np.max(np.abs(q - q_ref)))
+        if err > 1e-4:
+            raise ValueError(f'DROID NPZ joints differ from Blender: {err:.6g} rad')
+        if not np.array_equal(z['frame_index'], np.asarray(frames) - 1):
+            raise ValueError('DROID NPZ frame_index does not match Blender frames')
+        if not np.allclose(z['timestamp_s_nominal'], np.arange(len(q))/fps, atol=1e-7, rtol=0):
+            raise ValueError('DROID NPZ nominal timebase differs from Blender fps')
+        ep = {'observation.state.joint_position': q.copy()}
+        for src, dst in [('observation.gripper_position', 'observation.state.gripper_position'),
+                         ('action_dict.gripper_position', 'action.gripper_position')]:
+            g = z[src].ravel()
+            if g.shape != (len(q),) or not np.isfinite(g).all() or np.any((g < 0) | (g > 1)):
+                raise ValueError(f'Invalid DROID gripper channel: {src}')
+            ep[dst] = g.copy()
+    manifest = path.with_name('source.json')
+    if manifest.exists():
+        source = json.loads(manifest.read_text())
+        expected = source.get('trajectory', {}).get('sha256')
+        if expected and hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError('DROID trajectory checksum differs from source.json')
+        ep['language_instruction'] = source.get('instructions', [''])
+    return ep, f'NPZ 实测关节逐帧最大差 {err:.3g} rad；帧号、标称 fps 与 Blender 一致'
+
+
 def find_droid_episode(episode_index, q_ref=None, roots=None, max_files=2000):
     """按 episode 编号找 parquet。q_ref 给定时用关节角逐帧比对确认是同一条（防止编号同名不同源）。
     返回 (path, ep_dict, evidence) 或 (None, None, 原因)。"""

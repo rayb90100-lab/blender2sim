@@ -1,0 +1,106 @@
+test4 圆环碰撞对照实验 | 2026-11-19
+====================================
+
+结论与边界
+----------
+CoACD 凸分解和官方 SDF torus 均已实际运行，均能保留中孔并在箱体桌面的简化夹具中
+夹起、持住、释放圆环。完整 test4 尚未通过：两档 CoACD 均跑完整条轨迹但未放到托盘；
+SDF 回放触发 MuJoCo FatalError，属于执行中断，没有有效任务成功/失败判定。
+目前建议优先用 18 块 CoACD 继续排查抓取对齐，SDF 保留为实验路线。
+这是单场景、固定初态的对照，不是成功率或通用性验收；未接入生产管线或公共发布。
+
+条件与原始证据
+--------------
+- 输出根目录 outputs/test4-ring-experiments/，机器可读汇总 experiment-summary.json。
+- 原始 blend SHA256 e4b479bff697d6dab5dbee0f560ae39531b0ecebc4d6271d32e30db948eeb1c1。
+  取首帧“蓝环 · 九点防滑纹”的 evaluated mesh，20480 顶点、40960 三角形，完整网格闭合。
+  保留缩放与六自由度初始姿态；没有用抽样点做凸分解。
+- MuJoCo 3.3.7，CoACD 1.0.14，trimesh 5.2.1。后两者仅装入 local/ring-experiment-deps/。
+- 两方案共用原始网格的质量/惯量，密度假设 600 kg/m³、质量 69.96 g，非实测质量；
+  碰撞 geom 不再贡献质量，防止重叠凸块重复累计。视觉保留原网格。
+- dt=0.002 s、implicitfast、elliptic、多点接触开启，摩擦 [1,.005,.0001]，
+  环碰撞 solref=[.01,1]、condim=4。SDF 10 次迭代、40 个搜索起点。
+- SDF 为理想圆截面环：大半径 32.512 mm，小半径 13.843 mm；忽略原网格防滑纹，
+  高度 27.686 mm，对比原网格 26.416 mm。因此两者并非完全相同的几何。
+- CoACD real_metric=True，阈值 1 mm / 2 mm，seed=0；其他参数记录在 collision-assets.json。
+  阈值是分解参数，不代表每一点的几何误差都通过独立测量。
+
+局部对照结果（箱体桌面）
+------------------------
+方法                    CoACD 1 mm       CoACD 2 mm       SDF torus
+碰撞表示                69 凸块          18 凸块          1 个 SDF geom
+离线分解耗时            21.05 s          14.73 s          不适用
+中孔/环壁探针            通过             通过             通过
+静置 / 掉落后稳定        通过 / 通过      通过 / 通过      通过 / 通过
+限力夹持、抬起、释放     均通过           均通过           均通过
+最大抬升                35.87 mm         34.85 mm         37.17 mm
+夹持测试最深接触重叠     3.46 mm          3.22 mm          2.09 mm
+掉落测试最深接触重叠     5.93 mm          6.10 mm          3.06 mm
+3.5 s 夹持的 mj_step 时间 0.472 s          0.233 s          0.457 s
+
+时间为共享机器单次测量，排除编译、渲染与 Python 记录开销，不是严格性能基准。
+接触重叠取整段仿真最负 contact.dist 的绝对值，包含撞击瞬间，不是静置残余穿透。
+几毫米的瞬时重叠仍值得后续检查，不能把“稳定”当成接触精度已经达标。
+探针为半径 4 mm 小球穿过孔中心的 17 个高度，以及环壁 16 个角度；有限采样不是几何证明。
+静置/夹持 3.5 s，掉落 4 s；最后 0.5 s 采样线速度 <5 mm/s 且角速度 <0.5 rad/s 判为稳定。
+夹具每侧限力 20 N，升降台真实 slide 关节抬高 40 mm，持续持物抬升需超过 25 mm。
+这套局部夹具不等于 Panda/Robotiq 原始轨迹。夹持对照图 pinch-comparison.png 显示碰撞几何。
+
+平面与箱体不可混为一谈
+----------------------
+同样参数下，SDF 对无限 plane 的静置、掉落、释放后三项均未达到上述稳定条件，
+末速度分别约 9.85、20.60、29.86 mm/s；夹持过程可以抬起，但落回平面后继续抖动。
+换成顶部同高的 box 后三项稳定，静置末速度约 0.020 mm/s。
+CoACD 1 mm 对 plane/box 均稳定。不能据此笼统地说 SDF 不稳定或一定更慢；
+应分别检查 SDF-plane、SDF-box、SDF-mesh 的碰撞组合。
+证据 coacd/、sdf/、coacd-box/、sdf-box/、coacd-2mm-box/ 各 results.json 与轨迹 NPZ。
+
+完整机械臂回放
+--------------
+- 输入仍是 runs/test4-input/stage0_spec/ 的原始 q/g_cmd，284 帧、15 fps。
+  本实验每区间 round(1/15/.002)=33 步，即 66 ms，对标称 66.667 ms 有约 1% 时间量化；
+  所有方案相同，初始静置 0.5 s，回放后静置 1 s。未为成功而挪动物体或修改关节轨迹。
+- CoACD 1 mm：完成 283 个区间，最大抬升 22.84 mm，最深接触重叠 8.68 mm；
+  on(blue_ring,tray_floor)=false，released/upright/all_at_rest=true；mj_step 累计 5.62 s。
+- CoACD 2 mm：完成 283 个区间，最大抬升 21.74 mm，最深接触重叠 8.67 mm；
+  同样未落到托盘，其余三个谓词通过；mj_step 累计 3.30 s。
+- SDF：仿真 8.538 s 中断，报 Node not found（区间索引 121，子步 26）。
+  再对机器人碰撞网格设置 needsdf=True 并预生成距离场，仍在 10.106 s 中断
+  （区间索引 145，子步 18）。没有把 FatalError 记成任务谓词失败。
+- 将预生成模型 replay.mjb 与出错 final_qpos 单独加载，mj_forward 即可复现同一错误。
+  无回调的默认碰撞过滤即可复现；另加保留默认位掩码过滤的诊断回调后也复现，
+  最后进入的候选碰撞对是 Robotiq g_base mesh 与 ring_sdf。
+  这定位了本机版本的 SDF/mesh 执行问题，尚未证明具体引擎缺陷或测试新版修复情况。
+- 其余陪衬环、初态倾斜、托盘静态墙等仍保留输入阶段简化；只替换任务蓝环的碰撞。
+  因此上述任务失败不能全部归因于圆环算法。未运行完整 V1/V2 验收或 oracle。
+
+抓取对齐线索
+------------
+对源模型标注 estimated_grasp_tip_in_flange_m 与原生 Robotiq pinch site 比较，
+在 135/151/165/181/211 帧位置差约 20.20 mm、闭合轴差约 2.00°。
+源标注是建模者估计，并非独立标定；记录为可能的原因，不直接认定谁对谁错。
+下一步应核查实际指垫、环壁及法兰变换，再处理其他物体碰撞，之后才有依据调整接触参数。
+证据 gripper-alignment-diagnosis.json。关节与 FK 输入通过，不等于两套夹爪指尖几何相同。
+
+首次实验积累
+------------
+1. 初版以 mocap 瞬移夹具做抬升，未给摩擦求解器提供正确的升降速度，产生“夹不起来”假象。
+   已改成真实关节和限力驱动并重跑。*-initial-mocap/ 是作废夹持对照，不能引用为结论。
+2. 多凸块必须共用一个刚体、只计一次质量；只保留环形视觉而仍用整网格凸包会填孔。
+3. SDF 简化夹具成功不代表能与现有机器人的 mesh 碰撞正常配合，必须跑真实场景组合。
+4. needsdf 是本机 Python 编译接口字段，XML 本身不能还原该设置；保留脚本与编译 MJB。
+5. mjcb_contactfilter 替换默认位掩码过滤，诊断时不能简单永远返回 0。
+   旧 sdf-failure-pair/ 全程诊断不用于定量结论；最终复现脚本保持默认过滤语义。
+6. 18 块仍通过当前局部检查，可作为下一阶段成本较低的起点；不因块数多就默认更可靠。
+
+复现入口
+--------
+脚本 tools/r2pear/experiments/README.txt 记录依赖和完整命令。
+实验代码、模型/轨迹和结果文件的 SHA256 汇总在 experiment-summary.json。
+历史资料见 test4_collision_research.txt；本报告取代其中“尚未实验”的阶段性状态。
+官方参考（截至本轮核查）：
+https://mujoco.readthedocs.io/en/3.3.7/computation/index.html#convex-decomposition
+https://raw.githubusercontent.com/google-deepmind/mujoco/3.3.7/model/plugin/sdf/torus.xml
+https://raw.githubusercontent.com/google-deepmind/mujoco/3.3.7/plugin/sdf/torus.cc
+https://raw.githubusercontent.com/google-deepmind/mujoco/3.3.7/src/engine/engine_collision_driver.c
+https://github.com/SarahWeiii/CoACD

@@ -114,7 +114,7 @@ def main():
     sc = bpy.context.scene
     f0, f1 = sc.frame_start, sc.frame_end
     frames = list(range(f0, f1 + 1))
-    out = {"blend": a.blend, "blender_version": bpy.app.version_string,
+    out = {"extract_schema_version": 2, "blend": a.blend, "blender_version": bpy.app.version_string,
            "scene": {"name": sc.name, "frame_start": f0, "frame_end": f1,
                      "fps": sc.render.fps / sc.render.fps_base,
                      "resolution": [sc.render.resolution_x, sc.render.resolution_y],
@@ -124,7 +124,7 @@ def main():
                                     "children": [ch.name for ch in c.children], "props": props(c)}
                            for c in bpy.data.collections},
            "objects": {}, "meshes": {}, "armatures": {}, "cameras": {}, "lights": {}, "props_anim": {},
-           "dynamic": {}}
+           "dynamic": {}, "object_basis": {}}
     sc.frame_set(f0)
     dg = bpy.context.evaluated_depsgraph_get()
     for o in bpy.data.objects:
@@ -137,6 +137,8 @@ def main():
             "bbox_local": [list(v) for v in o.bound_box], "hide_render": bool(o.hide_render),
             "constraints": [c.type for c in o.constraints],
             "action": o.animation_data.action.name if o.animation_data and o.animation_data.action else None,
+            "matrix_basis": mat(o.matrix_basis), "matrix_parent_inverse": mat(o.matrix_parent_inverse),
+            "rotation_mode": o.rotation_mode,
             "data_props": props(o.data) if o.data is not None and hasattr(o.data, "keys") else {},
         }
         if o.type == "MESH":
@@ -208,8 +210,15 @@ def main():
             "props": props(act)}
     for n in dyn:
         out["dynamic"][n] = []
+    # Local transforms retain joint rotation independently of upstream motion.
+    # Include authored channels even when the five world probes miss a motion.
+    for n, o in out["objects"].items():
+        if o["action"] or o["props"].get("source_field") == "observation.joint_position":
+            out["object_basis"][n] = []
     for f in frames:
         sc.frame_set(f)
+        for n in out["object_basis"]:
+            out["object_basis"][n].append(mat(bpy.data.objects[n].matrix_basis))
         for n in dyn:
             out["dynamic"][n].append(mat(bpy.data.objects[n].matrix_world))
         for an, ad in out["armatures"].items():

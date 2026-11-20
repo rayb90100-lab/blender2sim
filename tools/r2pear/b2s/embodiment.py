@@ -1,6 +1,7 @@
 """b2s 第 1a 步：识别演示者的具身形态（robot_arm / human_hand / handheld_gripper），提取关节真值并校验。
 
 robot_arm（DROID 类）
+  支持骨架关节及带来源列标签/显式配置的父子对象关节链，两者共用下述 FK 校验。
   在 blend 里找「骨架中逐帧单轴旋转的骨骼链」，链长 = 关节数。每根骨骼的关节角取
   matrix_basis 的旋转向量在主轴上的投影（主轴由 SVD 求得，不假设是 X/Y/Z 哪一个）。
   校验（这是判断 blend 是否靠得住的核心）：
@@ -20,7 +21,7 @@ import numpy as np
 from common import inv, rot_angle_deg, rot_of
 
 HAND_WORDS = ("thumb", "index", "middle", "ring", "pinky", "little", "palm", "wrist", "metacarpal", "phalan")
-GRIPPER_WORDS = ("gripper", "umi", "finger", "jaw")
+GRIPPER_WORDS = ("gripper", "umi", "finger", "jaw", "夹爪")
 ROBOT_DOF = {"panda": 7}
 
 
@@ -77,6 +78,8 @@ def detect(ex, cfg, D):
         elif len(chain) >= 5:
             cands.append(("robot_arm", an, {"chain": chain}))
     if forced:
+        if forced.get("representation") == "object_joints":
+            return object_joint_embodiment(ex, forced, D)
         typ = forced["type"]
         D.add("embodiment", typ, "b2s_config.json 手动指定")
         return {"type": typ, **forced}
@@ -86,6 +89,8 @@ def detect(ex, cfg, D):
         typ, an, info = max(arms, key=lambda c: len(c[2]["chain"]))
         D.add("embodiment", "robot_arm", f"骨架 {an!r} 有 {len(info['chain'])} 根逐帧单轴旋转的骨骼")
         return {"type": "robot_arm", "armature": an, "chain": info["chain"]}
+    if any(o.get("props", {}).get("source_field") == "observation.joint_position" for o in ex.O.values()):
+        return object_joint_embodiment(ex, {}, D)
     if hands:
         typ, an, info = hands[0]
         D.add("embodiment", "human_hand", f"骨架 {an!r} {info['n_bones']} 根骨骼，含手部关键词 {info['hand_words']} 类")
@@ -101,9 +106,54 @@ def detect(ex, cfg, D):
     return {"type": None}
 
 
+def object_joint_embodiment(ex, config, D):
+    """Accept an explicitly ordered object chain or authored DROID column tags."""
+    chain = config.get("chain")
+    if chain is None:
+        indexed = [(o["props"].get("source_column_zero_based"), name) for name, o in ex.O.items()
+                   if o.get("props", {}).get("source_field") == "observation.joint_position"]
+        if len(indexed) != 7 or {i for i, _ in indexed} != set(range(7)):
+            raise ValueError('Object joints need unique source columns 0..6, or an explicit embodiment.chain')
+        chain = [name for _, name in sorted(indexed)]
+    if len(chain) != 7 or len(set(chain)) != 7 or any(n not in ex.O for n in chain):
+        raise ValueError('Object joint chain must contain seven distinct existing objects')
+    for a, b in zip(chain, chain[1:]):
+        if a not in ex.ancestors(b):
+            raise ValueError(f'Joint hierarchy is not ordered: {a} is not an ancestor of {b}')
+    base = config.get("base")
+    if base is None:
+        # URDF-like layouts often put a fixed-axis empty between base and J1.
+        base = next((n for n in ex.ancestors(chain[0])
+                     if ex.O[n]["type"] == "MESH" and not ex.is_dynamic(n)), None)
+        if base:
+            D.add("robot.base", base, "首关节最近的静止网格祖先；后续必须通过 FK 校验", fallback=True)
+    if base not in ex.ancestors(chain[0]):
+        raise ValueError('Set embodiment.base to a fixed ancestor of the first object joint')
+    if not np.allclose(ex.M(base), ex.M(base)[0], atol=1e-7, rtol=0):
+        raise ValueError('Moving robot bases are not supported')
+    # Fixed spacers are allowed, independently animated spacers/constraints are not.
+    hierarchy = set()
+    for name in chain:
+        for n in [name, *ex.ancestors(name)]:
+            hierarchy.add(n)
+            if n == base:
+                break
+    for n in hierarchy:
+        if ex.O[n].get("constraints") or ex.O[n].get("parent_type", "OBJECT") != "OBJECT":
+            raise ValueError(f'Unsupported constrained or bone-parented object joint: {n}')
+        basis = ex.E.get("object_basis", {}).get(n)
+        if n not in chain and basis is not None and not np.allclose(basis, basis[0], atol=1e-7, rtol=0):
+            raise ValueError(f'Unmodeled animated spacer in joint chain: {n}')
+    D.add("embodiment", "robot_arm", "父子对象关节链；保留 robot_arm 分支并进行同一套 FK 校验")
+    return {**config, "type": "robot_arm", "representation": "object_joints", "chain": chain,
+            "base": base, "root": base}
+
+
 # ------------------------------------------------------------------ robot_arm
 def robot_links(ex, emb):
     """连杆 i（1..n）= 父级为第 i 根链骨骼的第一个网格；link0 = 父级为骨架对象本身的网格（没有则用骨架）。"""
+    if emb.get("representation") == "object_joints":
+        return {0: emb["base"], **{i: n for i, n in enumerate(emb["chain"], 1)}}, emb.get("flange")
     an = emb["armature"]
     links = {}
     for i, b in enumerate(emb["chain"], 1):
@@ -160,7 +210,8 @@ def _offset_spread(Tw_base, mj, bl):
 
 
 def extract_robot(ex, emb, D, robot="panda"):
-    arm = ex.E["armatures"][emb["armature"]]
+    objects = emb.get("representation") == "object_joints"
+    basis = ex.E.get("object_basis", {}) if objects else ex.E["armatures"][emb["armature"]]["basis"]
     n = ROBOT_DOF[robot]
     chain = emb["chain"]
     if len(chain) != n:
@@ -168,7 +219,21 @@ def extract_robot(ex, emb, D, robot="panda"):
         raise SystemExit("目标机型与 blend 机械臂自由度不符；在 b2s_config.json 里指定 embodiment.chain")
     Q, axes = [], []
     for b in chain:
-        ang, ax, off, rng = bone_joint_angles(arm["basis"][b])
+        if b not in basis:
+            raise ValueError(f'Missing local joint transforms for {b}; re-run extraction')
+        matrices = np.asarray(basis[b], float)
+        if objects:
+            if matrices.shape != (ex.T, 4, 4) or not np.isfinite(matrices).all():
+                raise ValueError(f'Invalid local joint transforms: {b}')
+            if not np.allclose(matrices[:, :3, 3], matrices[0, :3, 3], atol=1e-7, rtol=0):
+                raise ValueError(f'Prismatic/moving joint origins are not supported: {b}')
+            if not np.allclose(matrices[:, :3, :3].transpose(0,2,1) @ matrices[:, :3, :3], np.eye(3), atol=2e-6):
+                raise ValueError(f'Scaled/sheared object joint basis is not supported: {b}')
+        ang, ax, off, rng = bone_joint_angles(matrices)
+        if objects:
+            ang = np.unwrap(ang)
+            if off > 0.5:
+                raise ValueError(f'Object joint is not single-axis: {b} ({off:.3f} deg RMS)')
         Q.append(ang)
         axes.append(ax)
         if off > 0.5:
@@ -260,6 +325,8 @@ def extract_robot(ex, emb, D, robot="panda"):
     ok = worst <= 2.0
     D.add("robot.fk_check", "通过" if ok else "失败",
           f"最大离散度 {worst:.4f}（阈值 2 mm / 2°）", warn=not ok)
+    if objects and not ok:
+        raise ValueError('Object-joint FK validation failed; refusing to bind this robot')
     # 关节限位检查
     import droid_common as C
     m, _, _ = C.build_model()

@@ -36,6 +36,28 @@ MUJOCO_GL=egl $B2S_PYTHON tools/r2pear/web_ui.py --testdir <simdir> --port 8091
 
 详细用法见 [`tools/r2pear/b2s/README.md`](tools/r2pear/b2s/README.md)。
 
+DROID 建模资料提取见 [`tools/DROID_EXTRACTION.txt`](tools/DROID_EXTRACTION.txt)：
+三路 left 视频和来源清单之外，默认保留实测/指令轨迹；有匹配的原始标定时附上，并注明缺失项。
+
+## 导出展示与交互环境
+
+`tools/r2pear/export_scene.py` 将已验证的 b2s 场景导出为 GLB＋轨迹 JSON＋视频，
+同时打包可迁移的 MuJoCo 交互环境（含 XML、模型资产、控制／判定代码和原始 Blender 场景）。
+导出会检查静置、示范回放、坐标绑定，并在新目录运行交互自检。
+
+```bash
+python tools/r2pear/export_assets/fetch_viewer.py --out local/export-vendor
+$B2S_PYTHON tools/r2pear/export_scene.py --testdir runs/test1 --out outputs/test1-export \
+  --scene-id b2s_test1_droid_ep71 --dataset DROID --episode ep71 \
+  --title '绿色物块放到黄色长方体' --viewer-assets local/export-vendor
+```
+
+输出包含离线 `preview.html` 和 `interactive/run.py`。展示回放不计算新物理，
+实时操作通过交互环境进行。公共发布必须同时交付 Blender 高清视频（默认 1080p、30 fps），
+发布器会校验视频与源场景、回放轨迹的对应关系；缺少视频会拒绝发布。
+浏览器验证、视频制作、公共目录发布及限制见
+[`export_assets/README.txt`](tools/r2pear/export_assets/README.txt)。
+
 ## 目录
 
 ```

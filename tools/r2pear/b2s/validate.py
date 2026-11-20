@@ -39,27 +39,76 @@ def obj_pose(m, d, n):
     return T
 
 
-def v1_settle(spec, seconds=3.0):
+def contact_pairs(m, d):
+    """Deepest signed distance per named geom pair, before any settling hides overlaps."""
+    pairs = {}
+    for c in d.contact:
+        if c.dist >= 0:
+            continue
+        ids = sorted((int(c.geom1), int(c.geom2)))
+        key = tuple(ids)
+        if key not in pairs or c.dist * 1000 < pairs[key]['dist_mm']:
+            pairs[key] = {'geoms': [m.geom(i).name or f'geom_{i}' for i in ids],
+                          'bodies': [m.body(m.geom_bodyid[i]).name for i in ids],
+                          'dist_mm': float(c.dist * 1000)}
+    return sorted(pairs.values(), key=lambda p: p['dist_mm'])
+
+
+def v1_settle(spec, seconds=3.0, demo=None):
     import mujoco
     m, d = S.build(spec)
     S.reset(m, d, spec, settle_s=0.0)
     p0 = {n: d.xpos[m.body(n).id].copy() for n in spec["objects"]}
-    pen = 0.0
+    R0 = {n: d.xmat[m.body(n).id].reshape(3, 3).copy() for n in p0}
+    initial_contacts = contact_pairs(m, d)
+    peak = {n: 0.0 for n in p0}
+    peak_xy = peak.copy()
+    pen = penetration(m, d)
     for _ in range(int(seconds / m.opt.timestep)):
         mujoco.mj_step(m, d)
         pen = min(pen, penetration(m, d))
+        for n in p0:
+            delta = d.xpos[m.body(n).id] - p0[n]
+            peak[n] = max(peak[n], float(np.linalg.norm(delta) * 1000))
+            peak_xy[n] = max(peak_xy[n], float(np.linalg.norm(delta[:2]) * 1000))
+    # mj_step leaves derived transforms at the preceding integration state.
+    mujoco.mj_forward(m, d)
     out = {}
     for n in spec["objects"]:
         j = m.joint(f"{n}_free")
         v = d.qvel[j.dofadr[0]:j.dofadr[0] + 6]
-        out[n] = {"drift_mm": float(np.linalg.norm(d.xpos[m.body(n).id] - p0[n]) * 1000),
+        delta = d.xpos[m.body(n).id] - p0[n]
+        drift = float(np.linalg.norm(delta) * 1000)
+        peak[n] = max(peak[n], drift)
+        peak_xy[n] = max(peak_xy[n], float(np.linalg.norm(delta[:2]) * 1000))
+        rotation = R0[n].T @ d.xmat[m.body(n).id].reshape(3, 3)
+        out[n] = {"drift_mm": drift, "delta_xyz_mm": (delta * 1000).tolist(),
+                  "horizontal_drift_mm": float(np.linalg.norm(delta[:2]) * 1000),
+                  "peak_drift_mm": peak[n], "peak_horizontal_drift_mm": peak_xy[n],
+                  "rotation_drift_deg": float(np.degrees(np.arccos(np.clip((np.trace(rotation)-1)/2, -1, 1)))),
+                  "initial_position_base_m": p0[n].tolist(),
+                  "final_position_base_m": d.xpos[m.body(n).id].tolist(),
                   "speed_mm_s": float(np.linalg.norm(v[:3]) * 1000), "spin_rad_s": float(np.linalg.norm(v[3:]))}
+        if demo is not None and f'obj__{n}' in demo:
+            ref = demo[f'obj__{n}']
+            valid = demo.get(f'valid__{n}', np.ones(len(ref), dtype=bool))
+            if len(ref) and valid[0]:
+                source = np.linalg.inv(spec['robot']['T_world_base']) @ ref[0]
+                source_pos = source[:3, :3] @ demo.get(f'cloc__{n}', np.zeros(3)) + source[:3, 3]
+                out[n]['source_reference'] = {
+                    'note': 'First valid-at-frame-zero Blender/demo pose, not calibrated physical ground truth.',
+                    'position_base_m': source_pos.tolist(),
+                    'source_to_initial_xyz_mm': ((p0[n] - source_pos) * 1000).tolist(),
+                    'source_to_final_xyz_mm': ((d.xpos[m.body(n).id] - source_pos) * 1000).tolist()}
     worst = max(o["drift_mm"] for o in out.values())
+    peak_worst = max(peak.values())
     return {"objects": out, "max_drift_mm": worst, "min_contact_dist_mm": pen * 1000,
-            "ok": bool(worst < 2.0 and pen > -0.003 and all(o["speed_mm_s"] < 5 for o in out.values()))}
+            "max_peak_drift_mm": peak_worst, "initial_overlaps": initial_contacts,
+            "reference": "Compiled initial pose before settling; never a baked settled pose.",
+            "ok": bool(peak_worst < 2.0 and pen > -0.003 and all(o["speed_mm_s"] < 5 for o in out.values()))}
 
 
-def v2_replay(spec, demo, renderers=None, on_frame=None):
+def v2_replay(spec, demo, renderers=None, on_frame=None, capture_settle=False):
     import mujoco
     m, d = S.build(spec)
     S.reset(m, d, spec)
@@ -86,8 +135,13 @@ def v2_replay(spec, demo, renderers=None, on_frame=None):
             traj[n].append(obj_pose(m, d, n))
         if on_frame:
             on_frame(f + 1, m, d)
-    for _ in range(int(1.0 / m.opt.timestep)):
+    settle_steps = int(1.0 / m.opt.timestep)
+    settle_frame = len(J)
+    for k in range(settle_steps):
         mujoco.mj_step(m, d)
+        if capture_settle and on_frame and ((k + 1) % sub == 0 or k + 1 == settle_steps):
+            on_frame(settle_frame, m, d)
+            settle_frame += 1
     ok, detail = PR.evaluate(m, d, spec)
     # 与 blend 参考轨迹比较（仅有效帧；参考是 blend 作者的近似，不是真值）
     cmp = {}
@@ -174,7 +228,7 @@ def main():
     demo = dict(np.load(os.path.join(a.simdir, "stage0_spec", "demo.npz")))
     vd = os.path.join(a.simdir, "stage1_validate")
     os.makedirs(vd, exist_ok=True)
-    rep = {"V1_settle": v1_settle(spec)}
+    rep = {"V1_settle": v1_settle(spec, demo=demo)}
     print("V1 静置:", json.dumps({k: rep["V1_settle"][k] for k in ("max_drift_mm", "min_contact_dist_mm", "ok")}))
     if len(demo["q"]):
         r2, _ = v2_replay(spec, demo)

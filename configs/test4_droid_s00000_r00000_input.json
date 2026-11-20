@@ -1,0 +1,42 @@
+{
+  "task_id": "test4_droid_s00000_r00000_input",
+  "instruction": "将蓝色圆环从桌面拿起，放入木托盘。当前仅验证输入适配，圆环碰撞尚未实现。",
+  "embodiment": {
+    "type": "robot_arm",
+    "representation": "object_joints",
+    "base": "Panda · 基座",
+    "flange": "实测法兰 | observation.cartesian_position"
+  },
+  "droid_trajectory": "data/droid/DROID_s00000_r00000/trajectory.npz",
+  "table": "圆桌 · 白色台面",
+  "objects": [
+    "蓝环 · 九点防滑纹",
+    "木托盘 · 桦木底板",
+    "橙环 · 凸纹",
+    "墨绿细环 · 棘纹",
+    "红环 · 波纹",
+    "黄绿细环 · 棘纹",
+    "黑白条纹细环"
+  ],
+  "object_names": {
+    "蓝环 · 九点防滑纹": "blue_ring",
+    "木托盘 · 桦木底板": "tray_floor",
+    "橙环 · 凸纹": "orange_ring",
+    "墨绿细环 · 棘纹": "dark_green_ring",
+    "红环 · 波纹": "red_ring",
+    "黄绿细环 · 棘纹": "lime_ring",
+    "黑白条纹细环": "striped_ring"
+  },
+  "registration": {
+    "global_warn_mm": 5,
+    "global_warn_deg": 2,
+    "grasp_warn_mm": 5,
+    "relative_ratio": 3,
+    "grasp_point_in_flange_m": [
+      -0.00917755742832194,
+      -0.015393380473399228,
+      0.16512340124976133
+    ],
+    "grasp_reference_grade": "authored_estimate_not_calibrated"
+  }
+}

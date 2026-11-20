@@ -109,11 +109,11 @@ def hold_mask(track, carry, frac=HOLD_LIFT_FRAC):
     return carry & (lift >= frac * lmax)
 
 
-def consistency(g, carry):
+def consistency(g, carry, closed=CLOSED):
     """夹爪信号与「持物」是否一致：持物段中闭合(g>=CLOSED)的比例。"""
     if carry.sum() == 0:
         return None
-    return float(np.mean(g[carry] >= CLOSED))
+    return float(np.mean(g[carry] >= closed))
 
 
 def blend_gripper_curves(ex):
@@ -122,7 +122,7 @@ def blend_gripper_curves(ex):
         for k, v in keys.items():
             v = np.asarray(v, float)
             kl = k.lower()
-            if kl in ("g", "open", "开口", "开合"):          # 已经是规范化的 0=开 / 1=闭
+            if kl in ("g", "open", "开口", "开合", "observation.gripper_position"):  # 0=开 / 1=闭
                 out.append((f"blend:{own}.{k}", np.clip(v, 0, 1), 0))
             elif any(w in kl for w in ("aperture", "width", "opening")):
                 a = v / 1000 if np.nanmax(np.abs(v)) > 1.5 else v       # mm → m
@@ -183,11 +183,11 @@ def _slerp_fill(M, ok):
     return out
 
 
-def repair_track(tr, g, ee, carry, D, name, frames):
+def repair_track(tr, g, ee, carry, D, name, frames, closed=CLOSED):
     """抓持且搬运的帧上，物体相对 pinch 应刚性不变：取 X 的中位数为参考抓取位姿，
     偏离 >1 cm 的帧判为无效（ep71 f107-113 物体比夹爪先抬起 3 cm），再统一修补。"""
     M, ok = tr["M"].copy(), tr["valid"].copy()
-    held = carry & (g >= CLOSED)
+    held = carry & (g >= closed)
     X_ref = None
     hv = np.where(held & ok)[0]
     if len(hv) >= 3:
@@ -210,7 +210,7 @@ def repair_track(tr, g, ee, carry, D, name, frames):
     rigid, interp = [], []
     filled = _slerp_fill(M, ok)
     for t in np.where(~ok)[0]:
-        if X_ref is not None and g[t] >= CLOSED:
+        if X_ref is not None and g[t] >= closed:
             filled[t] = ee[t] @ X_ref
             rigid.append(int(frames[t]))
         else:
@@ -256,7 +256,7 @@ def trim_failed_attempts(demo, scene, fps, D):
     if not segs:
         return 0
     hs = segs[0][0]
-    closed_segs = [s for s in _segments(demo["g"] >= CLOSED) if s[1] < hs]
+    closed_segs = [s for s in _segments(demo["g"] >= demo.get("closed_threshold", CLOSED)) if s[1] < hs]
     if not closed_segs:
         return 0
     pre = int(round(FAILED_ATTEMPT_PREROLL_S * fps))
@@ -306,6 +306,9 @@ def trim_failed_attempts(demo, scene, fps, D):
 def build(ex, emb, robot, scene, cfg, D, blend_dir):
     T_base = scene["T_world_base"]
     demo = {"fps": ex.fps, "frames": ex.frames, "embodiment": emb["type"]}
+    grip_cfg = cfg.get("gripper", {})
+    closed_threshold = float(grip_cfg.get("closed_threshold", CLOSED))
+    demo["closed_threshold"] = closed_threshold
     ext = cfg.get("demo")
     if ext:
         pass        # 末端轨迹来自外部数据，见下
@@ -342,6 +345,8 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
         demo["ee_source"] = f"外部 {ext['type']} 数据 {ext['path']}"
         if "T_blend_from_data" not in ext:
             D.add("demo.alignment", "单位阵", "外部数据坐标系与 blend 世界系的对齐未给定", warn=True, fallback=True)
+    if "ee_source" not in demo:
+        raise ValueError("Cannot extract end-effector motion: specify embodiment or an external demo in config")
     D.add("ee", demo["ee_source"], f"{len(demo['ee_world'])} 帧")
 
     tracks = object_tracks(ex, scene, T_base, D)
@@ -361,8 +366,15 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
 
     # ---- 夹爪候选
     cands = []
+    npz_ep = None
+    if cfg.get("droid_trajectory"):
+        npz_ep, why = SRC.load_droid_npz(cfg["droid_trajectory"], demo.get("q"), ex.frames, ex.fps)
+        cands.append(("dataset:droid_npz", npz_ep["observation.state.gripper_position"], cfg["droid_trajectory"], why))
+        demo["dataset"] = {"path": cfg["droid_trajectory"], "format": "droid_npz", "joints_verified": why}
+        demo["dataset_instruction"] = npz_ep.get("language_instruction", [""])[0]
+        D.add("dataset", cfg["droid_trajectory"], why)
     ep_idx, ep_why = episode_index(ex, cfg, blend_dir)
-    if ep_idx is not None and demo.get("q") is not None:
+    if npz_ep is None and ep_idx is not None and demo.get("q") is not None:
         p, ep, why = SRC.find_droid_episode(ep_idx, demo["q"], roots=cfg.get("dataset_roots"))
         if p:
             cands.append(("dataset:droid", ep["observation.state.gripper_position"].ravel(), p, why))
@@ -375,10 +387,21 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
             cands.append((k, demo[k], None, "外部/人手数据"))
     for n, g in blend_gripper_curves(ex):
         cands.append((n, g, None, "blend 自定义属性曲线"))
+    if grip_cfg.get("aperture_markers"):
+        a, b = grip_cfg["aperture_markers"]
+        width = np.linalg.norm(ex.M(a)[:, :3, 3] - ex.M(b)[:, :3, 3], axis=1)
+        width -= float(grip_cfg.get("marker_offset_m", 0))
+        if not np.isfinite(width).all() or (width < 0).any():
+            raise ValueError("Invalid aperture marker distances")
+        maximum = SRC.GRIPPER_MAX_APERTURE["robotiq_2f85"]
+        g = 1 - np.clip(width / maximum, 0, 1)
+        cands.append(("blend:aperture_markers", g, None, "指间标记距离换算到目标夹爪开口"))
+        D.add("gripper.aperture", {"markers": [a,b], "range_m": [float(width.min()),float(width.max())]},
+              "按配置的两指标记测量开口；超出目标夹爪最大开口的部分截断", warn=bool((width > maximum).any()))
     chosen = None
     report = []
     for n, g, p, why in cands:
-        c = consistency(g, hold_any)
+        c = consistency(g, hold_any, closed_threshold)
         ok = c is None or c >= CONSIST_MIN
         report.append({"source": n, "consistency": c, "range": [float(np.nanmin(g)), float(np.nanmax(g))],
                        "passed": ok, "why": why})
@@ -401,6 +424,9 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
     # ---- 夹爪**指令**（回放用）。实测开口在夹住物体后停在物体宽度处（ep71：实测 0.661、指令 0.911）；
     # 把实测值当位置伺服目标 = 目标开口≈物体宽度 → 几乎没有夹持力，物体滑落（ep71 实测：塔被碰倒）。
     gcmd, why = None, ""
+    if chosen[0] == "dataset:droid_npz":
+        gcmd = npz_ep["action.gripper_position"].copy()
+        why = "已核对的 DROID NPZ action_dict.gripper_position；保留原始指令，不用实测开口替代"
     if demo.get("dataset") and chosen[0] == "dataset:droid":
         import droid_common as C
         ep = C.load_episode(demo["dataset"]["path"])
@@ -417,16 +443,19 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
         # 合成 UMI 对照实测（同一条末端轨迹、retarget 后回放）：
         #   全闭 1.0（无论是否提前）→ 失败（2F-85 满行程把 27 mm 圆柱挤歪）；仅实测值 → 失败（无夹持力）
         #   实测+0.25 → 成功；再提前 4 帧 → 成功且穿透 4.3→2.6 mm
-        L = int(round(GRIP_CMD_LEAD_S * ex.fps))
+        L = int(round(float(grip_cfg.get("command_lead_s", GRIP_CMD_LEAD_S)) * ex.fps))
         gs = np.concatenate([demo["g"][L:], np.repeat(demo["g"][-1:], L)]) if L else demo["g"].copy()
         gcmd = gs.copy()
-        closed = gs >= CLOSED
+        closed = gs >= closed_threshold
         # 挤压力必须按**物理开口**给，不能直接搬 g 的增量：
         #   UMI 的 g 是 1 - w/80mm，仿真里的 2F-85 是 1 - w/85mm —— 同一个 g 在两个基准下相差 3.4 mm。
         #   ep71 的 +0.25 是在「DROID 实测 g 已停在物体宽度」的前提下标定的；UMI 也满足这个前提，
         #   所以这里把「实测开口 - GRIP_SQUEEZE_M」换算成指令 g，而不是给 g 加 0.25
         #   （直接 +0.25 会把 55 mm 的开口压到 37 mm，52.7 mm 的杯子会被挤歪推倒）。
-        ap_meas = (1.0 - gs) * SRC.GRIPPER_MAX_APERTURE["umi"]          # 实测夹爪开口（米，按 UMI 行程）
+        source_aperture = (SRC.GRIPPER_MAX_APERTURE["robotiq_2f85"] if chosen[0] == "blend:aperture_markers"
+                           else float(grip_cfg.get("source_max_aperture_m", SRC.GRIPPER_MAX_APERTURE["umi"])))
+        squeeze = float(grip_cfg.get("squeeze_m", GRIP_SQUEEZE_M))
+        ap_meas = (1.0 - gs) * source_aperture
         # 挤压力只在**已经合到物体宽度**之后才施加。
         # 实测踩坑：接近段实测开口 55 mm（比杯径 52.7 mm 还宽 2 mm，本来就只是贴着），
         # 无条件减 GRIP_SQUEEZE_M 会把接近段压到 45 mm —— 夹爪还没靠近杯子就先收窄，
@@ -446,17 +475,17 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
                 obj_w = w if obj_w is None else min(obj_w, w)
         if obj_w is not None:
             ap_cmd = np.where(ap_meas <= obj_w + 0.004,
-                              np.maximum(ap_meas - GRIP_SQUEEZE_M, obj_w - 0.020),
+                              np.maximum(ap_meas - squeeze, obj_w - 0.020),
                               ap_meas)
         else:
-            ap_cmd = np.maximum(ap_meas - GRIP_SQUEEZE_M, 0.0)
+            ap_cmd = np.maximum(ap_meas - squeeze, 0.0)
         g_squeeze = 1.0 - ap_cmd / SRC.GRIPPER_MAX_APERTURE["robotiq_2f85"]
         # ★ 用「物体真被抬起」校正闭合区间，而不是直接信 g 曲线。
         # UMI ep68 实测：g 在 367-371 帧有虚假尖峰（开口骤降到 4.8 mm），但那几帧杯子没动。
         # 照 g 闭合 → 夹爪在离杯子还差 30 mm 时就闭合，把杯子打飞 145 mm，
         # 真正的搬运段（741-803）开始时杯子已经不在原位了。
         gcmd[closed] = np.clip(g_squeeze[closed], 0, 1)
-        if hold_any.any() and closed.any():
+        if grip_cfg.get("filter_spurious_close", True) and hold_any.any() and closed.any():
             hi = np.where(hold_any)[0]
             w0 = max(0, hi[0] - int(round(GRIP_PRECLOSE_S * ex.fps)))
             w1 = min(len(closed), hi[-1] + 1)
@@ -473,7 +502,7 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
                       f"→ 判为读数尖峰，指令回退为实测开口；否则夹爪会在对准前闭合把物体打飞",
                       warn=True)
         why = (f"无指令通道：实测提前 {L} 帧；挤压力按物理开口给 "
-               f"（实测开口 −{GRIP_SQUEEZE_M*1000:.0f}mm 后换算到 2F-85 行程，避免 UMI(80mm)/2F-85(85mm) 基准差被放大）")
+               f"（源开口基准 {source_aperture*1000:.0f}mm，减 {squeeze*1000:.0f}mm 后换算到 2F-85）")
         D.add("gripper.command", "inferred", why, fallback=True)
     else:
         D.add("gripper.command", "dataset", why)
@@ -483,14 +512,14 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
         demo["stall_aperture_m"] = float((1 - np.median(held)) * SRC.GRIPPER_MAX_APERTURE["robotiq_2f85"])
 
     for s, tr in tracks.items():
-        repair_track(tr, demo["g"], demo["ee_world"], carry[s], D, s, ex.frames)
+        repair_track(tr, demo["g"], demo["ee_world"], carry[s], D, s, ex.frames, closed_threshold)
     demo["objects"] = {s: tr["M_fixed"] for s, tr in tracks.items()}
     demo["objects_valid"] = {s: tr["valid_final"] for s, tr in tracks.items()}
     demo["grasp_X"] = {s: tr["grasp_X"] for s, tr in tracks.items() if "grasp_X" in tr}
     demo["moved"] = moved
     demo["_hold_any"] = hold_any
     # 事件：夹爪闭合/张开的帧
-    gc = demo["g"] >= CLOSED
+    gc = demo["g"] >= closed_threshold
     ev = []
     for t in range(1, ex.T):
         if gc[t] and not gc[t - 1]:
@@ -498,5 +527,5 @@ def build(ex, emb, robot, scene, cfg, D, blend_dir):
         if not gc[t] and gc[t - 1]:
             ev.append({"frame": int(ex.frames[t]), "event": "release_open"})
     demo["events"] = ev
-    D.add("events", ev, "夹爪阈值 0.2")
+    D.add("events", ev, f"夹爪阈值 {closed_threshold}")
     return demo

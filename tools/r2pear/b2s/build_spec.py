@@ -74,18 +74,38 @@ def _cloc(scene, demo, s):
     return M0[:3, :3].T @ (np.array(scene["objects"][s]["center"]) - M0[:3, 3])
 
 
-def blend_binding(ex, scene, demo, robot, emb):
+def blend_binding(ex, scene, demo, robot, emb, cfg=None):
     """Web UI 的 Blender 视图直接驱动原 blend 所需的映射（b2s/blend_worker.py 读）。"""
     b = {"objects": {s: {"blend_name": o["blend_name"], "cloc": _cloc(scene, demo, s).tolist()}
                      for s, o in scene["objects"].items()},
          "cameras": {}, "robot": None}
+    cfg = cfg or {}
+    for s, o in scene["objects"].items():
+        root = cfg.get("visual_roots", {}).get(o["blend_name"])
+        if root:
+            if root not in ex.ancestors(o["blend_name"]):
+                raise ValueError(f"Visual root {root!r} is not an ancestor of {o['blend_name']!r}")
+            offset = int(demo.get("trim_offset", 0))
+            Mr = ex.M(root)[offset]
+            b["objects"][s] = {"blend_name": root,
+                "cloc": (rot_of(Mr).T @ (np.asarray(o["center"]) - Mr[:3, 3])).tolist()}
     if robot is not None:
-        b["robot"] = {"armature": emb["armature"], "bones": emb["chain"],
-                      "axes": [np.asarray(a).tolist() for a in robot["axes"]],
+        b["robot"] = {"axes": [np.asarray(a).tolist() for a in robot["axes"]],
                       "sign": np.asarray(robot["sign"]).tolist(), "offset": np.asarray(robot["offset"]).tolist(),
                       "q_mj = sign * q_bone + offset": True}
+        if emb.get("representation") == "object_joints":
+            from object_motion import gripper_binding
+            b["robot"].update(representation="object_joints", root=emb["base"], objects=emb["chain"],
+                              gripper=gripper_binding(ex, emb))
+        else:
+            b["robot"].update(armature=emb["armature"], bones=emb["chain"])
     else:
-        b["hide"] = list(scene.get("robot_set", []))     # 原演示者（人手/手持夹爪/被排除的机械臂）
+        # Physics exclusions also contain background furniture. Hide only the
+        # demonstrator replaced by the simulated robot, preserving the scene.
+        root = emb.get("root") or emb.get("armature")
+        b["hide"] = [root, *ex.descendants(root)] if root else []
+    for root in cfg.get("hide_trees", []):
+        b.setdefault("hide", []).extend([root, *ex.descendants(root)])
     return b
 
 
@@ -178,6 +198,12 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
         if shape == "unsupported":
             entry["shape_degraded"] = "形状不在 sim.py 支持集内，按包围盒建 box；需要替换资产"
         objects[s] = entry
+        if s in cfg.get("object_overrides", {}):
+            allowed = {"grasp_z_min_cm"}
+            overrides = cfg["object_overrides"][s]
+            if set(overrides) - allowed:
+                raise ValueError(f"Unsupported object overrides for {s}: {set(overrides) - allowed}")
+            entry.update(overrides)
 
     # 相机
     W = RENDER_W
@@ -216,6 +242,12 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
                           "fovy_deg": fovy, "intrinsics": K, "blend_camera": cn, "source_camera": c["stream"]}
             D.add(f"camera[{name}]", cn, f"世界固定，fovy {fovy:.1f}°，cx/cy 偏离中心 "
                   f"{K['cx'] - (W / 2 - 0.5):+.1f}/{K['cy'] - (H / 2 - 0.5):+.1f} px @ {W}x{H}")
+    for name, camera in cfg.get("additional_cameras", {}).items():
+        if name in cams:
+            raise ValueError(f"Additional camera would overwrite extracted camera: {name}")
+        cams[name] = {**camera, "source_camera": None,
+                      "blend_camera": f"b2s_virtual_{name}", "virtual": True}
+        D.add(f"camera[{name}]", "virtual", "配置的仿真观察相机，无对应真实源视角")
     static = []
     for st in scene["static"]:
         c = Tb_inv @ np.array([*st["center"], 1])
@@ -223,7 +255,7 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
         static.append({"name": st["blend_name"], "center": c[:3].tolist(), "half": st["half"],
                        "quat_wxyz": quat_wxyz(R), "rgba": st["rgba"]})
 
-    instr = cfg.get("instruction") or ex.E["scene"]["props"].get("instruction")
+    instr = cfg.get("instruction") or ex.E["scene"]["props"].get("instruction") or demo.get("dataset_instruction")
     if not instr and demo.get("dataset"):
         ep = C.load_episode(demo["dataset"]["path"])
         instr = ep["language_instruction"][0]
@@ -249,8 +281,11 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
         "success": success,
         "step_budget": {"control_hz": int(round(demo["fps"])), "max_control_steps": 600, "max_rounds": 25},
         "physics": dict(PHYSICS),
-        "blend_binding": blend_binding(ex, scene, demo, robot, emb or {}),
+        "blend_binding": blend_binding(ex, scene, demo, robot, emb or {}, cfg),
     }
+    spec["source"]["timing"] = {"source_fps": float(demo.get("source_fps", demo["fps"])),
+                                  "playback_fps": float(demo["fps"]),
+                                  "time_scale": float(cfg.get("retarget_time_scale", 1.0))}
     for cn, c in spec["cameras"].items():
         spec["blend_binding"]["cameras"][cn] = c["blend_camera"]
     if not instr:
@@ -263,10 +298,14 @@ def build(ex, scene, demo, robot_q0, cfg, D, out_dir, blend_path, robot=None, em
             if o["shape"] == "cylinder":
                 w = 2 * o["size"][0]
             elif Xg is not None:
-                # 闭合轴 = pinch 的 y 轴；物体局部系下取与之最平行的水平边
-                Rm = demo["objects"][s][0][:3, :3]
-                yo = Rm.T @ (demo["ee_world"][0][:3, :3] @ np.array([0, 1.0, 0]))
-                w = o["size"][0] if abs(yo[0]) > abs(yo[1]) else o["size"][1]
+                # size is in the classified shape frame (longest edge first),
+                # not necessarily the author's local axes. Measure the actual
+                # mesh span along the closing axis at the demonstrated grasp.
+                yo = Xg[:3, :3].T @ np.array([0, 1.0, 0])
+                n = scene["objects"][s]["blend_name"]
+                vertices = np.asarray(ex.E["meshes"][n]["verts_local"])
+                vertices = vertices * np.linalg.norm(ex.M0(n)[:3, :3], axis=0)
+                w = float(np.ptp(vertices @ yo))
             else:
                 continue
             ap = demo["stall_aperture_m"]

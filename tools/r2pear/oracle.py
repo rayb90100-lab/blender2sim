@@ -23,11 +23,20 @@ def _obj(env, name):
     return p, yaw, env.spec["objects"][name]
 
 
-def _grip_yaw(obj_yaw, cur_yaw):
+def _grip_yaw(obj_yaw, cur_yaw, quarter_turns=True):
     """指垫夹合方向 = 物体局部 y：工具 yaw ≡ 物体 yaw (mod 90°)；取离当前最近、且在 ±π/2 内的。"""
-    cands = [obj_yaw + k * math.pi / 2 for k in range(-4, 5)]
+    cands = [obj_yaw + k * math.pi / 2 for k in range(-4, 5) if quarter_turns or k % 2 == 0]
     cands = [c for c in cands if abs(c) <= math.pi / 2 + 1e-6] or cands
     return min(cands, key=lambda c: abs(c - cur_yaw))
+
+
+def _offset_world(env, name, key):
+    """Optional metric point offset in the object's own body frame."""
+    offset = np.asarray(env.spec['objects'][name].get(key, [0., 0., 0.]), dtype=float)
+    if offset.shape != (3,) or not np.isfinite(offset).all():
+        raise ValueError(f'{name}.{key} must contain three finite distances in metres')
+    rotation = env.d.xmat[env.m.body(name).id].reshape(3, 3)
+    return rotation @ offset
 
 
 def _goto(env, x, y, z, yaw, dwidth=0.0, log=None):
@@ -47,9 +56,16 @@ def _goto(env, x, y, z, yaw, dwidth=0.0, log=None):
 def solve(env, obj, support, log=None):
     z0 = env.robot.z0
     p, oyaw, o = _obj(env, obj)
-    yaw = _grip_yaw(oyaw, env.robot.state()["arm"]["yaw"])
-    gx, gy = p[0] * 100, p[1] * 100
-    gz = max((p[2] - z0) * 100, GRASP_Z_MIN_CM)
+    # Long thin objects cannot be grasped across their long edge. For shapes
+    # where both horizontal dimensions fit, preserve the original yaw choice.
+    quarter_turns = o["shape"] == "cylinder" or max(o["size"][:2]) <= 0.085
+    off_center = 'grasp_offset_local_m' in o
+    if off_center:
+        quarter_turns = False
+    yaw = _grip_yaw(oyaw, env.robot.state()["arm"]["yaw"], quarter_turns)
+    grasp = p + _offset_world(env, obj, 'grasp_offset_local_m')
+    gx, gy = grasp[0] * 100, grasp[1] * 100
+    gz = max((grasp[2] - z0) * 100, o.get("grasp_z_min_cm", GRASP_Z_MIN_CM))
     steps = [
         ("open_above", lambda: _goto(env, gx, gy, gz + APPROACH_CM, yaw, +1.0, log)),
         ("descend", lambda: _goto(env, gx, gy, gz, yaw, 0.0, log)),
@@ -66,13 +82,30 @@ def solve(env, obj, support, log=None):
     lift = max(top_cm + SP.height(o) * 100 + APPROACH_CM, gz + APPROACH_CM)
     held_off = gz - ((p[2] - z0) * 100)                      # 工具点相对物体中心的竖直偏移（抓得偏高时为正）
     place_z = top_cm + SP.height(o) * 50 + PLACE_CLEAR_CM + held_off
-    pyaw = _grip_yaw(syaw, env.robot.state()["arm"]["yaw"])
+    pyaw = _grip_yaw(syaw, env.robot.state()["arm"]["yaw"], quarter_turns)
+    res = _goto(env, gx, gy, lift, yaw, 0.0, log)
+    if res['done']:
+        return res
+    place = sp + _offset_world(env, support, 'place_offset_local_m')
+    px, py = place[:2] * 100
+    place_z += (place[2] - sp[2]) * 100
+    if off_center:
+        # Preserve the grasp actually achieved, including lateral displacement
+        # during closure. Place the object center at the requested support point,
+        # rather than putting the off-center tool point there.
+        tool_p, tool_R = env.robot.tool()
+        object_p, _, _ = _obj(env, obj)
+        relative = tool_R.T @ (object_p - tool_p)
+        desired_object = place.copy()
+        desired_object[2] += SP.height(so)/2 + SP.height(o)/2 + PLACE_CLEAR_CM/100
+        target = desired_object - CT.rpy_to_matrix(math.pi, 0., pyaw) @ relative
+        px, py = target[:2] * 100
+        place_z = (target[2] - z0) * 100
     for name, f in [
-        ("lift", lambda: _goto(env, gx, gy, lift, yaw, 0.0, log)),
-        ("transfer", lambda: _goto(env, sp[0] * 100, sp[1] * 100, lift, pyaw, 0.0, log)),
-        ("lower", lambda: _goto(env, sp[0] * 100, sp[1] * 100, place_z, pyaw, 0.0, log)),
-        ("release", lambda: _goto(env, sp[0] * 100, sp[1] * 100, place_z, pyaw, +1.0, log)),
-        ("retreat", lambda: _goto(env, sp[0] * 100, sp[1] * 100, place_z + APPROACH_CM, pyaw, 0.0, log)),
+        ("transfer", lambda: _goto(env, px, py, lift, pyaw, 0.0, log)),
+        ("lower", lambda: _goto(env, px, py, place_z, pyaw, 0.0, log)),
+        ("release", lambda: _goto(env, px, py, place_z, pyaw, +1.0, log)),
+        ("retreat", lambda: _goto(env, px, py, place_z + APPROACH_CM, pyaw, 0.0, log)),
     ]:
         res = f()
         if res["done"]:

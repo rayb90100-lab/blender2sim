@@ -1,0 +1,32 @@
+2026-11-20 后续进展：已完成输入、碰撞和原始轨迹验证；当前详情见 test5_README.txt。
+以下为接收时的历史预检记录。
+
+test5 建模接收与初步检查 | 2026-11-20
+====================================
+
+文件 data/scenes/DROID_s00000_r00008.blend（保持原文件不变）
+SHA256 99eefb99bf91905b03410ba8386b69b5e52dd349df8eb96a77f4d8ec6870545c
+任务：红甜椒从金属浅盘中取出，放到桌面。
+来源 data/droid/DROID_s00000_r00008/，125 帧、15 fps；与现有轨迹帧数一致。
+
+模型 628 对象，没有 Armature；采用父子对象关节链。
+基座：机器人基坐标 · 原点
+七个旋转对象：Panda · J1 连杆 … Panda · J7 连杆（MESH，各自上接 Jn · 固定轴向）
+法兰：法兰 · 实测位姿校核
+夹爪：执行器 · 夹指系，measured_closure；左指 · 平移 / 右指 · 平移
+任务物体根：红甜椒 · 运动中心（EMPTY，多个子网格，运动由三视图与法兰约束估计）
+桌面根：主工作台 · 台面中心（EMPTY）；需要进一步选择实际桌面网格。
+
+逐帧七个对象的局部 z 角与原 NPZ observation.joint_position 最大差 0 rad；
+measured_closure 与 observation.gripper_position 最大差 0。
+没有 test4 的 source_field / source_column_zero_based 标签，需要在配置中显式提供关节链，
+不能因自动标签扫描返回空就判断“没有机器人”或要求返工为骨架。
+
+相机：exterior_1_left 序列号 20521388、exterior_2_left 24259877、wrist_left 13062452；
+模型标记外参来自 calibration.json，内参是按 320×180 画面拟合。尚未验证投影精度/方向。
+还有总览相机“总览 | 机械臂与双层工作台”。
+
+下一步：显式关节链与固定中间节点 FK 检查；合并甜椒子网格为一个刚体视觉组；
+桌面/浅盘碰撞、相机与夹爪映射；最后再检查原始回放与 oracle 可解性。
+本轮仅完成接收与数据对应检查，没有跑完管线或部署 test5；部署时自动添加 9005→8095。
+证据 local/test5-inspection/{inspection.json,joint-candidates.json,source-alignment.json}。

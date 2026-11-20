@@ -1,0 +1,100 @@
+2026-11-20 最新：9004运行 outputs/test4-release-ready/interactive/scene 完整发布包的本地副本。
+已修正任务区位置与初态堆叠，V1和原始DROID完整回放通过；附完整Blender高清视频。
+使用公共tools/r2pear/web_ui.py，模型与资产使用包内相对路径。
+已发布到 /root/data/simulation/DROID-蓝色圆环放入木托盘-test4，发布后校验通过。详见test4_RELEASE_READY.txt。
+以下保留旧预览模式及排查历史。
+
+2026-11-20 最新入口说明：9004 已切换为“原始 DROID（位置对照）”。
+任务区域沿 Blender 世界 X 约 -30.2 mm 平移，原始 q/g_cmd 未改，单次任务通过。
+这是独立配准假设，V1 陪衬环静置仍失败，未完成真实标定或发布。
+当前 runs/test4-registration-preview；未平移 runs/test4-preview 保留。
+详见 test4_registration_experiment.txt。以下文字是此前模式及验证历史。
+
+test4 实验 WebUI | 2026-11-19
+============================
+
+2026-11-20 当前模式：原始 DROID 轨迹回放，用于检查失败原因。
+页面按钮为“回放原始 DROID 轨迹”；每次从初始场景重置，执行 demo.npz 的 q/g_cmd。
+以下较早的 oracle 成功记录保留作为另一种执行路径的证据，不是当前按钮的行为。
+当前 Blender 机械臂显示来自 MuJoCo 原生网格与实际 geom 位姿，原 Blender 文件未修改。
+
+服务：服务器 127.0.0.1:8094；VS Code 转发到电脑 127.0.0.1:9004。
+兼容入口：服务器 localhost:9004 → 127.0.0.1:8094，同时监听 127.0.0.1、127.0.1.1、::1。
+原因：用户首次访问整页空白，VS Code 日志明确显示隧道实际连接 localhost:9004。
+兼容转发进程 local/test4-forward-alias.py，PID/日志见 local/test4-forward-alias.{pid,log}。
+它是独立常驻进程，不随 WebUI 重启而退出。公共启动器现在自动确保相应兼容入口：
+  python3 tools/r2pear/ensure_web_forward.py --port 8094
+local/web-service.py 的 start/restart 会调用该工具；已有健康转发直接复用，缺少则自动创建。
+服务器重启后重新启动 WebUI 即会补齐转发，无需再单独手动启动别名脚本。
+运行目录 runs/test4-preview/；原来的 test1/2/3 服务保持不变。
+
+启动/检查/停止（项目根目录，在服务器普通终端执行）：
+  bash local/test4-service.sh start
+  bash local/test4-service.sh status
+  bash local/test4-service.sh stop
+日志 local/web-8094.log。
+
+使用原 WebUI 页面，支持 MuJoCo / Blender 三视角切换、手动操作及重置。
+web_playback.type=source_demo 明确切换自动执行路径；未设置时仍保留原有 oracle。
+圆环夹的是环壁；现使用 configs/test4_preview_oracle.json 中人工指定的环壁抓取点与托盘空位。
+当前初态的 oracle 抓取/放置离线通过；原始 DROID 轨迹回放仍未通过，未做完整验收或公开发布。
+
+模型来自 outputs/test4-ring-experiments/coacd-2mm-replay/replay.xml，复制到
+runs/test4-preview/model.xml。蓝环采用 18 块凸分解；陪衬物保留实验阶段简化。
+源 task_spec/demo 复制自 runs/test4-input/stage0_spec/，预览副本增加模型路径/哈希和状态说明。
+tools/r2pear/experiments/preview_ring_web.py 只在本进程替换模型构建入口并校验 XML 哈希；
+没有改变通用 sim.build 或其他场景的启动方式，不支持随机初态覆盖。
+
+蓝环碰撞使用完整初始姿态；blend_binding.objects.blue_ring.initial_body_rotation_base
+保存对应初始旋转，用于 Blender 视觉反向绑定。缺少此字段时保持原 yaw 绑定行为。
+原 Blender、输入阶段 spec/demo、历史实验结果均保持不变。
+
+验证证据 local/test4-web-check/：
+- HTTP 首页/状态及两种引擎各三路 JPEG 正常；Blender 首帧约 1.27 s，后两路约 0.62–0.68 s。
+- 实际 Chromium 页面三张图均载入，切到 Blender 三张图也均载入，无页面脚本错误。
+- Z+ 操作执行 2 个控制步，重置后步数归零且 reset_count 增加。
+- webui-mujoco.png、webui-blender.png 为实际页面截图；HTTP/浏览器报告同目录保存。
+- 修复后的 9004 经四种主机名/地址验证首页，Chromium 三路画面及 Blender 腕部均正常；
+  见 forward-validation.json、webui-9004.png。
+
+2026-11-19 补充：视图切换与环壁抓取
+---------------------------------
+- Blender 帧异步返回后曾无条件覆盖 img.src，导致切回 MuJoCo 后腕部又显示 Blender。
+  固定视角/自由视角现按切换批次丢弃过期帧，切换时强制刷新自由视角；GET 渲染接口
+  不再隐式把服务端模式改回 Blender。复现及修复证据见 local/test4-web-check/view-switch-*.json。
+- 原 oracle 下降后工具横向位置距环中心约 0.34 mm，指向孔中心；闭合后没有持续指垫接触，
+  抬升时圆环留在桌上。只向环壁平移还不够，默认抓取高度与闭合前伸补偿使指垫偏高。
+- 预览配置：蓝环局部抓取偏移 [0,-0.04,0] m，最低工具高度距桌面 1.5 cm；托盘局部
+  放置偏移 [-0.07,-0.06,0] m。后者避开橙环，未经选择的托盘中心并不是空位。
+- oracle.py 增加可选 grasp_offset_local_m / place_offset_local_m；根据抬升后实际工具到
+  物体的相对变换补偿偏心抓取，避免将工具点误当作物体中心放置。未配偏移的旧任务保留中心抓法。
+- 离线最终蓝环抬升约 100 mm，托盘承重约 0.685 N（重量 0.686 N），释放、平放约 0.08°、
+  静止四项均通过。test1/test2/test3 oracle 回归通过。原始 q/g_cmd、源 Blender、碰撞与摩擦未改。
+- 离线证据 local/test4-oracle-baseline.json、test4-oracle-wall-free.json；
+  中间试验还显示：偏移但不降低工具点仍抓空，抓起后放到已占用区域会倾斜卡住。
+  这些是本场景 oracle 的手工配置，不是自动抓取点识别或 DROID 原始动作复现成功。
+
+原始轨迹回放与 Blender 显示修复（2026-11-20）
+--------------------------------------------
+- 原建模夹爪的几何与闭合量插值不同于实际 Robotiq 指垫；改用
+  blend_binding.robot_visual_source=mujoco，从同一模型读取可见网格，并逐帧应用实际 geom 位姿。
+  同状态抓持前后图：local/test4-native-visual/{authored.jpg,native.jpg,mujoco.png}。
+- 原 wrist 挂在建模关节链下；原生机器人显示时将相机解除父级/动画约束，直接应用实际物理
+  相机世界矩阵，避免父级再次变换。其他场景不启用原生显示时保留既有绑定方式。
+- sim.build 新增带 SHA256 校验的 model_xml 可选入口，spec.load 支持相对路径；
+  原生 Blender 子进程因此与 WebUI 使用同一个 18 块凸分解模型，不再回退为默认箱体。
+- 原始回放读取原 demo 的七关节与 g_cmd，不用 oracle、IK 规划或物体参考动画驱动物体。
+  284 帧、15 fps，每区间 33 个 2 ms 步，末尾再静置 1 s。与之前离线回放最终 qpos 最大差 0。
+  文件校验 7d0ced6b47b776054d1438451371cf1936dbf11d17c29f770d51c820bed3d0ac。
+- 浏览器通过 9004 完成回放，保留 success=false；中途取消/重置、三路 Blender 及切回 MuJoCo
+  均通过，页面无脚本错误。证据 local/test4-original-replay/{validation.json,browser-validation.json}。
+- 第 130–150 帧渐闭，圆环曾短暂抬起约 1–2 cm 后掉回；第 137 帧对侧指垫距环碰撞几何
+  约 52.8 mm，仅 left_follower 连杆接触，未形成两侧指垫夹持。这与第一版 oracle 的孔中心抓空不同。
+- 初态蓝环与红环的箱体近似重叠约 8.67 mm，桌面亦有约 3.16 mm 初始重叠。
+  静置 0.5 s 后蓝环水平移位 23.09 mm；仅在内存诊断中排除蓝/红这一碰撞对，漂移降为 0.183 mm。
+  证据 initial-blue-contacts.json、initial-drift-ablation.json、grasp-contact-diagnosis.json。
+  该排除没有应用到网页或发布候选；下一步应改善陪衬圆环碰撞，之后再核查工具与场景对齐。
+
+发布状态：按用户后续要求，先观察原始回放，发布准备暂未完成；没有公开发布 test4。
+runs/test4-release/ 只是未验收的准备草稿（3 s 静置后的物体初态，V1 静置通过），
+尚无合格导出包或高清发布视频，不能拿它代替当前原始回放调试场景。

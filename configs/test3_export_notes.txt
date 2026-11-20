@@ -1,0 +1,34 @@
+test3 — EgoDex basic_pick_place/1：手机放入浅纸盒盖
+=================================================
+
+来源
+- 官方 EgoDex test/basic_pick_place/1，160 帧、30 fps。
+- 数据来源：https://ml-site.cdn-apple.com/datasets/egodex/test.zip
+  条目：test/basic_pick_place/1.mp4 和 test/basic_pick_place/1.hdf5。
+- 原始视频 SHA256：3ec74e8cf017ef7c086e27f877886bed634d50b740d2515c22cb808b112a66aa。
+- 原始 HDF5 SHA256：e68e4917080ec492621637ca59a51eeaf221ac56f4e575dcd5b42bf4a1624408。
+- Blender 由用户提供，原名 EGO.blend，项目编号 EgoDex_basic_pick_place_0001.blend。
+  已通过场景源视频属性、帧数以及源视频首尾布局核对。包内为 interactive/source/scene.blend。
+- 本包不包含原始 EgoDex 视频或 HDF5；原 Blender 文件的校验值见 provenance.json。
+
+实际执行的管线
+- 提取 Blender 右夹爪动画及两指标记开口，搜索机器人基座并通过 IK 重定向到 Panda + 2F-85。
+- 手机使用单刚体碰撞近似，整体视觉部件随该刚体运动；盒底和盒壁保留碰撞，背景障碍保留。
+- 原速回放抓取失败；保持路径和开合采样，将执行时间延长到 3 倍（30 fps → 10 fps）。
+- 夹持指令提前两个源帧，挤压偏置 4 mm；原开口超过目标夹爪 85 mm 的部分截断。
+- 模板 oracle 是另一套在线抓放控制；它的成功与演示回放成功分别记录。
+- 物体运动由 MuJoCo 物理产生；展示视频和 Web3D 回放是该物理运行的记录。
+
+验证及边界
+- 本次导出的静置、演示回放、GLB 绑定和迁移交互结果见 validation.json；
+  公共发布目录另附 browser-validation.json，验证实际展示、oracle、重置及 Blender 渲染。
+- 成功条件：手机在盒盖上、已松开、保持直立、全部物体静止。
+- 成功不代表精确接触或零穿透，具体漂移、穿透和参考轨迹误差见验证报告。
+- 已验证的是 EgoDex 来源的 Blender 夹爪动画分支；原始 HDF5 人手与 Blender 的坐标对齐及
+  直接控制分支尚未独立验证通过，不应将本包称为原始人手数据端到端转换结果。
+- 尺度来自单目重建；原头戴相机在仿真中固定为首帧，源视频 V3 对照未完成。
+- wrist 为挂在 link7 上的虚拟观察相机，无对应的真实 EgoDex 腕部相机；
+  当前取景可以看到黑色夹爪，白色腕部在视野之外。这不是相机标定结果。
+  Blender 近裁剪已设为 1 mm，避免默认 10 cm 裁掉近处的夹爪连接件。
+- MuJoCo 显示简化几何；Blender/Web3D 保留场景视觉资产，程序化材质在 GLB 中可能有差异。
+- 运行依赖、交互启动方法和模型许可证位置见 README.txt。

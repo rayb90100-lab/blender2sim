@@ -1,0 +1,51 @@
+test4 | 初态碰撞修复与建模配准复查 | 2026-11-20
+================================================
+当前 8094 → 9004 使用 runs/test4-preview/，按钮继续回放原始 DROID q/g_cmd。
+最终物理 XML：outputs/test4-collision-fix/repaired.xml（已复制到 preview/model.xml）。
+SHA256：3363f4d80ffbdbe9cc2758ae9d1587b1a6309c791324439a96b9f42f777239e1
+修复前 live spec/XML 备份：outputs/test4-collision-fix/previous-preview/。
+源 blend 和 demo 均未改动。不是发布环境，不能把 oracle 的历史成功套用于本模型。
+
+修复范围
+- 五个陪衬圆环用完整求值网格 CoACD，2 mm 阈值；保留各自完整源姿态与中孔。
+- table 使用源圆形半径/厚度和完整姿态，不再丢失基座相对桌面的倾斜。
+- tray_floor 恢复源姿态/尺寸，static10..21 的木托盘构件组成同一刚体；
+  初始世界位姿保持，Blender visual_companions 随同运动。
+- 原始 q/g_cmd、机器人安装、源场景相对基座配准、蓝环初始位置和接触开关未改。
+- 陪衬环按源体积与假定 600 kg/m³ 重算质量/惯量，非实测质量。
+
+关键对照
+旧模型蓝环 0.5 s 水平漂移 23.087 mm；只修红环后 0.183 mm；最终 0.0060 mm。
+最终蓝环 Z 变化 -0.132 mm，3 s 最大位置变化 0.443 mm；托盘最终漂移 0.030 mm。
+V1 整场仍失败：堆叠环间初始重叠 6.40 mm、最大最终漂移 6.06 mm、峰值 8.20 mm。
+V2 原始回放仍失败：最大抬升 8.63 mm，没有 on(blue_ring,tray_floor)。
+闭合阶段只见左 follower 接触目标，151 帧已分离；不能叫有效双指夹持。
+
+建模偏移的证据与边界
+- 编译蓝环位置与源首帧误差 <0.0001 mm；native flange FK 与原数据最大误差 <0.0001 mm。
+  所以尚未发现管线转换新引入整套坐标平移。
+- 建模场景声明尺度/位置及相机是视频拟合，场景父级缩放 1.269996；这不等于缩放必然错误。
+- 同一原始关节帧，源 estimated_grasp_tip 与 native pinch 差 20.20 mm。
+  源 marker 是估计值，不能把这个差值直接当作真实工具标定修正量。
+- 第 130 帧源估计夹持点距源初始环心水平 47.80 mm，native pinch 为 62.97 mm。
+  源蓝环第 133 帧起移动，第 143 帧已横向移动约 15.34 mm；估计夹持点到动画环心约 32.49 mm。
+  这说明动画与物理对夹持的假设不一致，但动画移动是否符合原视频还需独立检查。
+- 无原始标定相机/物体真值，仅凭这一次抓取无法区分全场平移、局部位置/尺寸、工具中心误差。
+  先多帧/多视角检查原视频及工具几何，再决定是否改建模配准；不要为一次成功随意挪环。
+
+复现（source local/env.sh 后）
+1. extract_collision_mesh.py 对源 blend 的红/黄绿/橙/墨绿/条纹环分别提取到
+   outputs/test4-collision-fix/{red_ring,lime_ring,orange_ring,dark_green_ring,striped_ring}/。
+   --object 使用各 mesh-source.json 的 object 字段；另提取 table 和 tray_floor。
+2. PYTHONPATH=local/ring-experiment-deps .venv/bin/python tools/r2pear/experiments/prepare_ring_collision.py
+   --assets <上述各环目录> --threshold-m .002
+3. .venv/bin/python tools/r2pear/experiments/repair_scene_collision.py
+   --model outputs/test4-collision-fix/previous-preview/model.xml
+   --spec outputs/test4-collision-fix/previous-preview/task_spec.json
+   --assets outputs/test4-collision-fix
+   --objects red_ring lime_ring orange_ring dark_green_ring striped_ring --table --boxes tray_floor
+   --attach-static tray_floor:10,11,12,13,14,15,16,17,18,19,20,21
+   --out outputs/test4-collision-fix/repaired.xml
+4. .venv/bin/python tools/r2pear/b2s/validate.py --simdir runs/test4-preview --no-video
+   此命令按现有 preview/spec 的 SHA 验证后读取模型，输出含 V1/V2 的正式验证报告。
+证据位于 outputs/test4-collision-fix/，没有公共发布、提交或推送。

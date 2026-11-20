@@ -1,0 +1,827 @@
+blender2sim 本地修复日志
+======================
+
+用途：持续记录本地修复、验证证据和待整理项，供后续集中提交、推送远端。
+新增记录按日期追加；区分已验证的行为、场景专用配置和未解决的问题。
+
+2026-11-19 | 服务器部署、test1 验证、test2 杯碟任务恢复
+-----------------------------------------------------
+
+基线与当前状态
+
+- 仓库基线：b88f497。
+- 本轮修改保留在工作区，尚未提交、尚未推送。
+- test1：8091，运行目录 runs/test1/，方块搬放任务。
+- test2：8092，运行目录 runs/test2-cup-saucer/，杯子放到蓝色杯碟上。
+- 两者使用同一套核心解析、spec、MuJoCo、控制器、谓词和 Web/Blender 运行代码。
+  test1 直接转换机械臂关节动画；test2 将手持 UMI 夹爪轨迹重定向到 Panda。
+- 用户接受当前 test1/test2 可用状态，后续继续积累修改再统一推送。
+
+一、部署与访问
+
+- 建立独立 Python 环境，下载 Panda/Robotiq 模型及官方 Blender 场景资产，核验场景校验和。
+- 当前服务器使用 Mesa EGL 软件渲染和 CPU Cycles；具体依赖与启动参数见 local/DEPLOYMENT.txt。
+- Web 服务监听 127.0.0.1，经远程开发环境转发到用户电脑浏览器。
+- 修复 web_ui.py 的 socket 地址族选择，显式 IPv4 地址可正常绑定。
+- 两个实例独立管理；本轮 test2 更新未重启 test1。
+
+二、Blender 首帧 HTTP 500
+
+- 原因：bpy 导入或 open_mainfile 的 C 层日志写入 stdout，污染 NDJSON 通信。
+- 修复：blend_worker.py 在导入 bpy、打开场景前保留协议专用描述符并重定向 stdout。
+- 验证：实际 Blender 首次请求及后续主视角、腕部、自由视角均能返回 JPEG。
+
+三、test2 杯子持续微小抖动、all_at_rest 判失败
+
+- 调查：圆柱杯底与桌面的单点接触造成持续数值抖动；肉眼位移小不代表角速度达标。
+  在相同模型和初始状态下，对比多点接触后稳定性明显改善。
+- 修复：sim.py 支持 task_spec.physics.multiccd=true，启用 MuJoCo mjENBL_MULTICCD。
+- test2 已开启，实测杯底接触由 1 点增加到 5 点；test1 保持原有设置。
+- 未放宽静止阈值或取消静止判定。先前“放到桌上”版本的静置和完整回放均通过。
+- 该修复不等于解决了全部碰撞穿透问题，见下方限制。
+
+四、恢复 test2 原始杯碟任务
+
+- 原仓库 test2 配置只包含杯身，排除了杯碟，任务文字和目标均为“放到桌上”。
+  这使得稳定后的初始状态就能满足旧任务，重置前后看起来没有变化。
+- 当前任务：抓起蓝杯，放到蓝色杯碟上，松开夹爪，杯子直立且全部物体稳定。
+- 从原始 Blender 提取结果恢复杯碟位置、尺寸、材质；杯碟参与真实物理碰撞，作为可移动支撑物。
+- 杯碟碰撞几何采用薄圆柱近似；Blender 显示原始凹形网格。
+- 新增 visual_companions 绑定支持，让杯把作为视觉部件跟随杯身运动。
+- 保留原始示范轨迹，通过物理回放验证；没有用 Blender 动画替代物理推动物体。
+- 场景准备脚本：local/prepare-test2-saucer.py。
+  读取 evidence/test2/sim/stage0_extract/extract.json 和本地 runs/test2 的 spec、demo。
+  输出 runs/test2-cup-saucer/stage0_spec/。这是当前场景专用补齐流程，尚非通用自动推断。
+
+五、背景桌子消失、盆悬空
+
+- 原因：parse_scene 的 robot_set 混入了 exclude_trees 中的背景家具；
+  build_spec 又将该集合整体用作 Blender 隐藏名单，后桌消失而盆仍可见。
+- 修复：非机械臂具身只隐藏被替换的原演示者根节点及其后代，保留背景桌子与实验室资产。
+- 已为现有 test2 运行 spec 更新隐藏名单，恢复后桌、盆和杯碟。
+- 新增 test_visual_binding_preserves_excluded_background 回归测试。
+- 实际 Blender 图像确认盆正常位于后桌上。
+- MuJoCo 简化观测本来就不包含完整实验室背景；上述背景恢复针对 Blender 视图。
+
+六、重置场景响应与画面刷新
+
+- 修复命令队列并发访问；收到重置时清理待执行命令，并请求取消正在执行的 oracle。
+- oracle 物理更新与状态读取统一受锁保护，在控制步之间释放锁供渲染和取消操作。
+- 等待 oracle 停止后才替换环境；取消超时会报告错误，不再强行关闭仍在使用的环境。
+- 重置立即清理旧图像缓存、更新位姿快照，原状态栏显示“已重置场景（次数）”。
+- 两种 MuJoCo 渲染路径均随模型替换重建 Renderer，避免持有旧模型。
+- 后台帧发布前检查环境身份，避免重置前旧帧覆盖新状态。
+- Blender 渲染移出物理锁，缓存写入前检查重置代次。
+- 保持原 PAGE 布局和按钮；此前临时增加的回放入口及包装脚本已移除。
+
+七、验证记录
+
+- test1：V1 静置通过，最大漂移约 0.357 mm；V2 回放通过，4 项判定全部满足。
+  已验证 Web oracle 成功以及 MuJoCo/Blender 三路 HTTP 画面。
+- 当前 test2 杯碟任务：
+  V1 静置通过，最大漂移 0.972849 mm。
+  V2 原示范回放 success=true：on(cup, saucer)、released、upright、all_at_rest 全通过。
+  独立 oracle 成功，72 个控制步；HTTP oracle 成功，63 个控制步，来自不同运行。
+  HTTP 成功后重置约 0.69 秒；Blender 模式执行中重置约 0.14 秒。
+- 单元测试：6 passed；Python 编译检查与 git diff --check 通过。
+- local/verify-test2-reset.py：实际物理动作后重置、队列清理、旧帧清除、位姿恢复、
+  渲染期间取消 oracle、按需渲染器换模型、后台连续重置后恢复画面均通过。
+- HTTP 回归最终在临时本机 8093 实例执行，避免干扰用户操作 8092；测试后已停止临时实例。
+
+证据位置（以下目录被 .gitignore 忽略，目前仅保存在本机）：
+  runs/test1/stage1_validate/validate.json
+  runs/test2/stage1_validate/validate_before_multiccd.json
+  runs/test2/stage1_validate/validate.json                 旧“放到桌上”任务
+  runs/test2-cup-saucer/stage1_validate/validate.json       当前杯碟任务
+  local/test2-contact-flags.json                          多点接触对比
+  local/test2-saucer-oracle.json
+  local/http-test2-saucer.json
+  local/test2-saucer-blender-orbit.jpg                     初始场景
+  local/test2-saucer-blender-success.jpg                   自动抓放成功
+  local/test2-saucer-blender-reset.jpg                     重置恢复
+
+八、已知限制与后续提交准备
+
+- 当前 test2 示范回放最深接触距离为 -8.680 mm，仍有穿透；
+  相对原 Blender 杯子参考轨迹的中位偏差约 13.459 mm。成功判定通过不代表物理模型精确。
+- 杯碟为薄圆柱碰撞近似，杯把目前仅作视觉跟随；不能据此认定任意杯碟几何均已支持。
+- 原始腕部相机是鱼眼；MuJoCo 针孔近似与 Blender 视角存在差异，本轮未改相机标定。
+- 重置清除旧帧后，第一张新帧生成前 /frame 可能短暂返回 503，随后恢复。
+- 当前 test2 场景补齐脚本、运行 spec、报告以及部署脚本位于 local/、runs/，不会随普通 git 提交上传。
+  推送前需将可移植的场景配置、准备逻辑、必要回归脚本及少量验证证据整理到可跟踪目录，
+  去除本机绝对路径；保留历史 evidence，明确区分旧任务与新任务结果。
+- 推送前更新 README 中 test2 的现状说明，避免继续展示旧失败结果为当前状态。
+- 待集中审阅的源码：
+  tools/r2pear/web_ui.py
+  tools/r2pear/sim.py
+  tools/r2pear/b2s/blend_worker.py
+  tools/r2pear/b2s/build_spec.py
+  tools/r2pear/b2s/tests/test_b2s.py
+- 后续正式提交前应对两个场景重跑必要回归；本日志记录的是本次验证时间点的结果。
+
+2026-11-19 | test1/test2 展示与交互环境导出、公共目录发布
+------------------------------------------------------
+
+- 新增 tools/r2pear/export_scene.py，可从已验证的 b2s 运行目录导出完整交付包。
+  用法和依赖见 tools/r2pear/export_assets/README.txt，根 README 已增加入口。
+- 展示格式对齐已有导出：scene.json、GLB、real2gym.current_native_replay.v1 JSON、
+  manifest、MP4、首尾 PNG；附带本地 Three.js 依赖及可旋转/播放/拖动进度的 preview.html。
+  位姿、视频来自同一次 MuJoCo 回放，包含结束后的稳定阶段；展示页面本身不执行物理。
+- interactive/ 和 interactive-environment.tar.gz 包含原生 MJCF、模型资产、许可证、
+  原始 blend、任务 spec、示范与采样轨迹，以及实时控制、oracle、重置、成功判定和原 Web UI。
+  源 blend 和机器人模型路径均可迁移，不依赖本机原数据目录；不打包虚拟环境或完整数据集。
+- sim.build 增加可选 MjSpec 返回，供独立 XML 导出；spec.load 支持相对 blend 路径，
+  Web Blender 入口复用该解析。validate 可选记录稳定阶段，默认原行为不变。
+  blend_worker 增加离线 GLB 导出路径，实时页面布局不变。
+- 导出记录使用独立 MjData 快照，避免采样改变正在运行的物理状态；
+  GLB 使用刚性节点绑定、Blender 到 glTF 坐标转换，校验首帧与轨迹一致。
+  视频采用真实 MuJoCo 相机眼位，ffmpeg 限制编码线程数以支持本机软件渲染。
+- 新增浏览器验证及发布脚本。发布要求物理、迁移和浏览器报告全部通过，
+  报告绑定确切产物哈希；校验全部文件后先复制到临时目录再改名，拒绝覆盖已有目标。
+  Python 字节码缓存不进入归档、发布文件清单或公共副本。
+
+最终验证与证据：
+- 原有测试和新增导出/发布测试合计 12 passed（23.52 秒）；git diff --check 通过。
+- 两场景 V1 静置、V2 示范回放均通过，最大静置漂移分别 0.357374 / 0.972849 mm。
+- 迁移到临时目录、改变工作目录并清理原模型路径后：独立 XML 加载、控制、oracle、
+  取消后重置、重置后渲染均通过；oracle 分别 70 / 72 步成功。
+- 最终包浏览器实测：展示播放/拖动、真实 oracle 按钮、重置按钮、Blender JPEG 均通过；
+  Web oracle 分别 60 / 63 步成功，重置后步数为 0，浏览器脚本错误为 0。
+  报告及截图：local/test1-delivery-browser/、local/test2-delivery-browser/。
+- 最终本地包：outputs/test1-delivery/、outputs/test2-delivery/。
+  交互归档分别约 22.16 / 16.30 MiB，无绝对路径、上级路径、链接或字节码缓存。
+
+已发布并复核文件校验值：
+  /root/data/simulation/DROID-绿色物块放到黄色长方体-test1/
+  /root/data/simulation/UMI-蓝杯放到蓝色杯碟-test2/
+  每个目录含 README.txt、validation.json、browser-validation.json、checksums.json。
+  目录总大小分别约 128.2 / 112.3 MiB，含解包环境及压缩归档。
+  未修改其他人的场景或共享网站索引。原 8091/8092 服务仍运行。
+
+限制与提交状态：
+- 保留前述碰撞/相机近似及 test2 接触穿透限制；成功不代表精确物理。
+- glTF 无法完整表达 Blender 程序化材质，部分桌面材质外观会变化。
+- 迁移测试复用已安装 Python 依赖，未声称已在全新操作系统验证安装。
+- 发布产物留在服务器；outputs/、local/ 继续被忽略。导出脚本和本日志尚未提交或推送。
+
+2026-11-19 | 后续 DROID 数据交付约定（用户明确偏好）
+--------------------------------------------------
+- 目录放在 data/droid/DROID_sxxxxx_rxxxxx/，不加 test4/test5 等前缀。
+- 每个目录只交付三个 left 相机的 H.264 视频和 source.json：
+  exterior_1_left.mp4、exterior_2_left.mp4、wrist_left.mp4、source.json。
+- source.json 保留任务说明、原始数据定位及必要溯源信息。
+- 默认不额外生成或交付逐帧图片、拼接视频、轨迹 NPZ/Parquet、原 TFRecord、ZIP 或其他说明文件。
+- 此约定适用于后续数据准备；本次未删除已交付的数据。
+
+- 用户随后要求将现有两组也按上述约定处理：已改名为 DROID_s00000_r00000、DROID_s00000_r00008，
+  每组仅保留三路 H.264 MP4 与 source.json；删除原额外文件、ZIP 和目录说明。视频字节未改变，
+  编码与帧数已核对，视频 SHA256 写入 source.json，来源说明同步更新。
+
+2026-11-19 | test3：EgoDex basic_pick_place/1 转换与交互通过
+---------------------------------------------------------
+- 原 EGO.blend 改名为 data/scenes/EgoDex_basic_pick_place_0001.blend，内容未改。
+- 新增可跟踪场景配置 configs/test3_egodex_basic_pick_place_0001.json；
+  完整复现、适配项、证据和验证边界见 configs/test3_README.txt。
+- 修复中文夹爪识别、明确配置的薄物体支撑解析、组合物体视觉根绑定、宽物体夹爪信号配置。
+- 修复基座搜索漏查真实背景有向碰撞盒、漏掉 g_ 夹爪几何，以及力矩排序方向错误。
+  原基座与背景相交约 113 mm，修复后 V1 通过，回放最深接触约 -1.347 mm。
+- 原速仍抓取失败；有界速度/夹持对照后保持路径与夹持偏置，将执行时间拉长为 3 倍。
+  V2 四项谓词全部通过；手机参考轨迹位置差中位 2.094 mm，末态 2.130 mm。
+- oracle 支持长矩形保持短边夹持和任务声明的薄物体最低抓取高度；
+  独立 oracle 90 步成功，浏览器按钮 oracle 83 步成功；重置后步数 0。
+- 新增虚拟腕部相机配置及 Blender 创建支持；MuJoCo/Blender 画面通过实际浏览器检查。
+- 当前 test3 服务运行在 127.0.0.1:8093；8091/test1、8092/test2 保持运行。
+  用户误开 8094，已从 VS Code 日志确认远端 8094 无服务，并重新用明确的 127.0.0.1:8093 打开。
+- 当前结论限于 Blender 夹爪动画分支；原始 EgoDex HDF5 可读取，但原人手坐标对齐/控制分支尚未独立通过。
+  原始摄像机运动和尺度仍为重建近似；V3 视频对照 skipped；未声称精确相机标定或无穿透。
+- 本轮未导出或发布 test3；源码与记录尚未提交/推送。
+
+- 端口转发更正：用户提供映射表，远端 8091/8092/8093/8094 分别映射到本地
+  8092/59597/8094/8095；此前不能仅凭本地 8094 推断访问了远端 8094。
+  已在 /root/brl/.vscode/settings.json 为 8091–8093 设置 requireLocalPort、场景标签和转发恢复。
+  现有本地隧道仍需在用户电脑的端口面板重新设为同号；该设置不代表现有映射已经修改。
+
+2026-11-19 | 用户确认的端口转发约定
+- 服务器 809x → 用户电脑 900x：8091→9001（test1）、8092→9002（test2）、8093→9003（test3）。
+- 用户确认 test3 经本地 8094 已可访问；本地 8093 有占用，采用 900x 统一编号。
+- 已取消工作区 requireLocalPort 同号要求，保留转发恢复及端口标签；现有本地映射由用户在 VS Code 面板修改。
+- 此后提供浏览器访问地址时使用本地 900x，服务器服务继续使用 809x；不能仅凭本地端口判断远端端口。
+
+2026-11-19 | test3 重启、转发故障与腕部近裁剪修复
+-------------------------------------------------
+- 重启 test3 后，服务器 8093 的首页和 MuJoCo/Blender 两路画面正常，但用户电脑 9003 整页空白。
+  VS Code remoteagent.log 多次明确报告 Failed to connect tunnel to localhost:9003，
+  即隧道目标是服务器 9003，而实际服务在 8093；不是端口数值太大或渲染器没有启动。
+- 增加 local/test3-forward-alias.py：仅监听 127.0.0.1、127.0.1.1、::1 的 9003，转发至 127.0.0.1:8093。
+  该兼容入口复用同一个 test3，不是另开仿真实例，不暴露公网。日志 local/test3-forward-alias.log；
+  PID 记录 local/test3-forward-alias.pid；尚未设置开机自启。用户随后确认页面恢复。
+  原约定仍为服务器 8093 → 电脑 9003；之后如清理兼容入口，必须先确认客户端隧道已指向 8093。
+- 用户再次指出 wrist 中两指连接处缺失，复核发现 Blender 新建虚拟相机默认近裁剪为 0.1 m。
+  之前仅检查白色腕部在视锥之外，漏查了夹爪连接件的近裁剪；先前“只是视角”解释不完整。
+- blend_worker.py 为虚拟相机设置默认 1 mm 近裁剪，并支持 near_clip_m；test3 配置和运行 spec
+  显式设为 0.001。未更改相机位姿和物理模型；同姿态对照确认黑色外壳与连接机构恢复。
+  白色腕部本身仍在当前视野之外，不能将该虚拟相机视角称为真实相机标定结果。
+- 证据：local/test3-wrist-recheck/ 的 pose.json、same-pose-before.jpg、same-pose-after.jpg、
+  same-pose-mujoco.png 和 live-fixed.jpg；运行服务已重启加载修复。
+
+2026-11-19 | test3 导出准备：相机可见性与来源边界
+-----------------------------------------------
+- export_scene.py 增加 --scene-notes，把来源及限制写入展示目录和交互归档；
+  test3 使用 configs/test3_export_notes.txt，明确原始人手控制分支未验证、执行时间拉长 3 倍、虚拟腕部等。
+- 默认导出环绕相机在 test3 被墙面遮挡。增加 --camera，test3 使用原有 agentview_2 世界固定相机；
+  Web3D 使用实际渲染相机的眼位、方向、up 和垂直视场角，避免视频与预览视角不一致。
+- 视频逐帧拒绝近乎纯色的视图；浏览器检查场景内部的空间色彩变化，排除 HTML 顶栏/控制条干扰。
+  此检查只防止整幅墙面等明显空画面，不能替代视觉检查或证明相机已标定。
+- 旧遮挡包和近裁剪修复前的包保留在 outputs/ 的诊断目录，均不发布。
+- 公共发布结果与最终验证在完成后追加；源码仍未提交、未推送。
+
+三种来源的管线结论（按实际 spec 核对）
+- 共用 Blender 提取/解析、任务 spec、MuJoCo、控制器、成功谓词、Web/Blender 与导出框架。
+- DROID/test1 走 robot_arm 分支：关节动画 + FK 校验，匹配的数据集提供夹爪指令。
+- UMI/test2 与 EgoDex/test3 当前均走 handheld_gripper 分支：Blender 末端位姿 → 基座搜索 + IK。
+  test2 开合来自 Blender 属性；test3 来自指间标记。没有将原始 UMI/EgoDex 数据适配器的单测等同于实数据全流程通过。
+- 当前 test2 仍有杯碟场景专用补齐脚本；test3 有显式配置和速度/抓取适配。
+  因而可称“跨三种来源场景具有初步通用性、核心管线复用”，不宜称“任意数据零配置自动转换”。
+- 三例均为抓取放置，均使用 Panda + 2F-85；更复杂任务、更多场景和原始人手直接控制尚待验证。
+
+2026-11-19 | test3 最终导出与公共发布完成
+---------------------------------------
+- 已发布 /root/data/simulation/EgoDex-手机放入浅纸盒盖-test3/，未修改其他场景或共享索引。
+  本地最终包 outputs/test3-delivery/，约 111.48 MiB；交互归档约 15.72 MiB。
+- 同时交付已有展示格式（scene.json、GLB、replay、manifest、视频/首尾图）、离线 preview.html，
+  以及可迁移 interactive/ 和 tar.gz。场景说明在两种交付中均包含原始来源与验证限制。
+- 最终物理回放 170 个状态样本、16.9 s；MP4 255 帧/15 fps。V1 最大漂移 0.064468 mm，
+  V2 success=true、最深接触 -1.346703 mm，手机末态参考误差 2.130395 mm。
+- 独立原生 XML、搬到临时目录后的运行、动作/取消/重置/渲染全部通过，oracle 90 步成功。
+- 最终浏览器：Web3D 首尾可见、播放及定位正常；oracle 83 步成功，重置后步数 0；
+  Blender agentview/wrist/orbit 全部出图，腕部连接件恢复，页面脚本错误 0。
+  证据 local/test3-delivery-browser-publish/browser-validation.json 及对应截图。
+- 新的图像检查已实际拒绝旧墙面遮挡包；修复前后的腕部相同姿态证据在
+  local/test3-wrist-recheck/validation.json。没有以控制条/文字的颜色变化冒充场景可见性。
+- 测试 17 passed（29.91 秒）；git diff --check 通过。归档路径、无缓存文件、源码一致性、
+  near_clip_m=0.001 和附带说明均已检查；发布器验证产物哈希与浏览器报告绑定后原子发布。
+- 配置与复现说明已更新 configs/test3_README.txt；仍未提交或推送远端仓库。
+
+2026-11-19 | 用户确认：记录原始轨迹依赖限制，优先扩展两个 DROID 场景
+-----------------------------------------------------------------
+- 当前 UMI/test2 和 EgoDex/test3 均依赖 Blender 夹爪动画驱动重定向。
+  UMI 的末端位姿及开合来自 Blender；EgoDex 的末端位姿及指间开口也来自 Blender，
+  未直接使用原始 HDF5 人手关节驱动仿真。二者都尚未独立验证 Blender 动画与原始采集轨迹的一致性。
+- 当前通过意味着 Blender 中表达的操作可在物理仿真执行，不等于原始采集动作已被忠实复现；
+  建模时对动作的修改也会进入仿真。原始数据读取适配器存在不等于实数据端到端验证通过。
+- 后续可改为 Blender 提供几何、原始数据提供动作，并验证坐标/时间对齐；
+  EgoDex 还需验证人手到夹爪的映射。但用户明确要求暂不完善此方向，本轮不开展。
+- 当前下一阶段优先级：等待用户完成以下两组 DROID 真机场景建模，再进行场景扩展和通用性验证：
+  test4：data/droid/DROID_s00000_r00000/，蓝色圆环放入木托盘，284 帧；
+         建议 Blender 名 DROID_s00000_r00000.blend。
+  test5：data/droid/DROID_s00000_r00008/，红色甜椒从盘中取出放到桌面，125 帧；
+         建议 Blender 名 DROID_s00000_r00008.blend。
+- 两组建模资料保持用户约定的最简交付：三路 left 相机 H.264 MP4 + source.json。
+  s/r 表示分片与片内记录的零基索引，不是全局 episode_index；后续以 source.json 核对来源。
+- 收到模型后沿用现有核心管线，记录所需适配、失败原因与验证结果；当前等待建模，不先行修改场景。
+
+2026-11-19 | WebUI 交互性能诊断（只测量，未切换线上配置）
+-------------------------------------------------------
+- 当前宿主机 nvidia-smi 能正常识别 8 张 RTX 4090，探测前均无 GPU 进程。
+  local/env.sh 仍强制 LIBGL_ALWAYS_SOFTWARE=1、Mesa EGL、CPU Cycles 8 samples；
+  其“无可用 NVIDIA 驱动”注释不能代表当前宿主机状态。运行进程的环境变量已核对。
+- 服务器本地 HTTP：主页/状态中位约 1.2 ms，MuJoCo 缓存图片约 0.5 ms；
+  9003 兼容转发主页约 0.7 ms，未见显著额外开销。这不包含用户电脑到服务器的 SSH/网络延迟。
+- 当前线上 Blender 单帧请求：agentview 中位 581 ms、wrist 710 ms、orbit 709 ms（各 3 次），
+  包含当时的服务处理和排队。三路共用 BlenderProxy 的同一锁和单个子进程，无法同时出图。
+- 独立相同模型、512×288 MuJoCo 渲染对照（每视角预热后 8 次）：
+  CPU llvmpipe 三视角中位 115–140 ms；GPU 0 / RTX 4090 中位 0.63–0.73 ms。
+  两种运行均为 1000 个物理步（2 s 仿真时间）约 98–99 ms；原始物理步进不是当前主要瓶颈。
+- 独立 Blender EEVEE GPU 路径可用：含启动/首次编译首帧约 26.0 s，随后六帧约 261–308 ms。
+  这是切换引擎的对照，外观与 CPU Cycles 不完全相同；不能把 MuJoCo 的加速倍数外推给整个 WebUI。
+- 代码中放大延迟的因素：MuJoCo 三路渲染持有物理/状态锁；每轮渲染后再 sleep(1/fps)，
+  当前 fps=5，因此耗时还要叠加 200 ms；无人观看时也持续渲染。Blender 三视角串行，
+  oracle 在 Blender 模式下每个控制步等待渲染，画图慢会直接拖慢动作。前端要求 384×216 的参数
+  在当前 /frame Blender 路径未被采用，非预览仍按 512×288 出图。页面 EEVEE 标签也不代表实际引擎。
+- 建议顺序：先启用已实测可用的 GPU 渲染，再解耦物理与渲染、按需刷新/限制过时请求，
+  然后调整实际帧率和远程传输。用户本机网络往返时间尚未测量。
+- 证据：local/test3-performance-{http,cpu,gpu,eevee}.json；独立探测进程均已退出。
+  本轮未重启或更改三个线上服务，也未修改公共交付包。
+
+2026-11-19 | 用户要求暂不加速 WebUI，另补三个 Blender 高清视频
+------------------------------------------------------------
+- 用户明确暂不推进实时加速；本轮不修改 local/env.sh、服务帧率或实时渲染策略。
+- 新增 tools/r2pear/render_blender_video.py 和 b2s/render_sequence.py，复用 blend_worker 的
+  原场景绑定，将已发布 native_trace.npz 的记录状态送入离线 Blender 渲染。
+  输出 1920×1080、30 fps H.264，Cycles 64 samples、OptiX、OpenImageDenoise；
+  GPU 渲染/降噪设置只在独立离线作业生效，不修改原 Blender 文件或现有交互环境。
+- 30 fps 采用最近的已记录状态，保留原物理回放时序，不重跑物理、不快放、不插值生成新动作。
+- test1 使用原 agentview；test3 使用已确认的 agentview_2；test2 原 agentview 被机械臂遮挡，
+  因此改用公开 Web3D 的 export_view 相机，先检查首/中/末预览再制作完整视频。
+- 新增 export_assets/publish_video.py：校验场景/轨迹/源 Blender 哈希，补充到原公共场景的
+  blender-hd/ 子目录，并更新根 checksums.json；保留原 scene.json、物理回放和交互归档。
+  拒绝已有补充目录、错误来源及校验不符；新增三项发布回归测试。
+- 当前测试 20 passed（23.41 秒），语法检查与 git diff --check 通过。
+  视频完整渲染、编码验证与公共发布结果完成后追加；源码仍未提交/推送。
+
+高清视频最终交付（2026-11-19）
+- 三段均已完成：Blender Cycles 64 samples、OptiX、GPU OpenImageDenoise，1920×1080、30 fps、
+  H.264/yuv420p、CRF 18、faststart，无音频。未修改实时 WebUI 的 CPU 配置或帧率。
+- test1：370 帧，12.333333 s，视频约 1.96 MiB；渲染 187 个源记录状态。
+  /root/data/simulation/DROID-绿色物块放到黄色长方体-test1/blender-hd/blender-hd.mp4
+- test2：276 帧，9.200000 s，视频约 1.56 MiB；渲染 270 个源记录状态。
+  /root/data/simulation/UMI-蓝杯放到蓝色杯碟-test2/blender-hd/blender-hd.mp4
+- test3：508 帧，16.933333 s，视频约 3.52 MiB；渲染 170 个源记录状态。
+  /root/data/simulation/EgoDex-手机放入浅纸盒盖-test3/blender-hd/blender-hd.mp4
+- 每个 blender-hd/ 同附首尾高清 PNG、README.txt 和 render-report.json。
+  报告记录源场景/轨迹/Blender 文件哈希、相机、渲染设备与参数、每个视频帧对应的物理状态索引。
+- 首、中、末图已视觉检查；全部 PNG 检查尺寸与明显空画面；最终 MP4 经 ffprobe 帧数/规格校验和
+  ffmpeg 全片解码检查。发布后再次校验三个公共目录和原浏览器报告绑定：原始交付文件保持一致。
+- 本地帧、请求、日志在 outputs/test{1,2,3}-blender-hd/；仅 delivery/ 的五个文件作为公共补充。
+  test3 编码曾被运行时终止，已添加 --encode-only，从严格匹配的完整 PNG 序列恢复并验证成功。
+- 所有最终离线渲染与编码均已完成；代码和日志尚未提交或推送远端仓库。
+
+2026-11-19 | Blender 高清视频纳入必需发布流程
+----------------------------------------------
+- 用户明确要求以后每次发布都附 Blender 视频，作为长期发布约定。
+- publish.py 在首次发布前要求提供 --blender-video-dir，或输入包已有 blender-hd/。
+  核验 H.264 视频及其校验值、场景标识、源文件哈希；缺少视频或来源不匹配即拒绝。
+  视频与展示/交互产物一并复制到暂存目录，重新生成校验清单后原子发布。
+- 抽出 video_validation.py，首次发布与旧场景补齐视频共用验证逻辑。
+  publish_video.py 保留用于历史发布补齐；新场景默认先完成视频再发布。
+- 默认视频规格仍为 1920×1080、30 fps、Cycles 64 samples；先检查首中末取景再渲染。
+  根 README 和 export_assets/README.txt 已写入该步骤，不改变实时服务配置。
+- 新增首次发布缺少视频、携带匹配视频（含包内视频）、轨迹来源不符的回归测试。
+  完整 b2s 测试 23 passed（23.19 秒），证据 local/publish-required-video-tests.log。
+
+2026-11-19 | 两组待建模 DROID 的轨迹与标定来源核查
+----------------------------------------------------
+- 建模目录当前仅三路 left H.264 视频和 source.json；数值轨迹没有随这份精简资料交付，
+  不代表原始数据缺失。应明确说明建模所需数值资料的可用性，避免把交付内容误当全部原始字段。
+- 已重新解析本地原始 TFRecord Example：test4/r00000 为 284 帧，test5/r00008 为 125 帧。
+  两条均有 observation/joint_position (N,7)、末端位姿、夹爪状态，以及 action_dict 中
+  关节/末端/夹爪控制指令。实测状态与控制目标必须区分，不可混用。
+- 这两条 RLDS 记录没有相机内外参或原始时间戳字段；source.json 的
+  camera_calibration_present=false 只描述当前来源/交付，不代表整个 DROID 原始数据都无标定。
+  字段审计保存在 local/droid-selection/raw-field-audit.json。
+- 在官方 gresearch/robotics/droid_raw/1.0.1 找到 test5 对应的 RAIL 原始包，
+  已只下载 metadata 与 trajectory.h5 到 local/droid-source-audit/。
+  125 帧实测关节与本地 RLDS 完全相等，末端/夹爪值转成 float32 后逐项相等。
+  原始包包含三台活动相机 13062452、20521388、24259877 的左右目外参及时间戳；
+  各活动相机 left 外参均为 (125,6)、全部有限。对齐证据 rlds-raw-alignment.json。
+- 该 HDF5 不含内参。DROID 作者补充数据说明指出内参可由原始 SVO 提取，并发布了
+  intrinsics.json；其覆盖范围及这两条的具体匹配尚未核实，未宣称完整标定已经可直接使用。
+  来源：https://huggingface.co/KarlP/droid/blob/main/README.md
+  原始/RLDS 格式说明：https://github.com/droid-dataset/droid/blob/main/docs/the-droid-dataset.md
+- test4 对应 BVL 原始目录在上述公开 RAW 版本的精确路径查询为空，尚未定位其原始包，
+  不能据此断言原始标定不存在。未将 test5 的标定借给 test4。
+- 后续提供建模标定时还需核对外部相机与视频的对应、坐标系、分辨率缩放及时间对齐；
+  本轮仅审计并保存证据，未改变两个最简建模目录，未修改场景或运行控制管线。
+
+2026-11-19 | 两组 DROID 补齐关节轨迹，改进精简提取流程
+------------------------------------------------------
+- 用户要求两组均附关节轨迹，标定有则带上、无则不强求；保留简洁目录约定。
+- 新增 tools/droid_extract.py：从缓存的 RLDS Example 与 source.json 提取三路 left H.264、
+  trajectory.npz 和来源清单。匹配 RAW HDF5/metadata 可选，提供时另附 calibration.json。
+  默认不导出 JPEG 帧、拼接视频、Parquet、原始数据副本或 ZIP。
+- 已更新 data/droid/DROID_s00000_r00000/：新增 trajectory.npz（约 52 KiB），284×7 实测关节，
+  同附末端/夹爪状态及控制指令；当前无标定，source.json 明确标记 unavailable。共五个文件。
+- 已更新 data/droid/DROID_s00000_r00008/：新增 trajectory.npz（约 37 KiB），125×7 实测关节，
+  同附其他原始数值及 22 个原始时间戳/采集状态字段；calibration.json 约 103 KiB。共六个文件。
+- 第二组标定包含三台活动相机左目的逐帧六维外参，腕部另保留逐帧 gripper_offset。
+  标记 partial_extrinsics_only；内参未获取，外部视频到序列号的对应未核实，不冒充完整标定。
+  数值保持原样，未转换 Blender 坐标，未声明投影精度已通过验证。
+- source.json 新增数值字段形状/类型、读取说明、来源/文件哈希及标定状态；视频字节保持不变。
+  实测 observation.* 与控制 action_dict.* 分开保留，标称视频时间和原采集时钟分开保留。
+- RAW 附加前核对录制路径、帧数、实测关节/末端/夹爪；不匹配则在写入前拒绝。
+  已有标定的目录重提取时要求继续提供原输入，防止静默丢失。已验证重复导出文件哈希一致。
+- 实数据验证：两组所有 RLDS 数值逐项相等，第二组外参与原 HDF5 逐项相等，已有视频哈希一致。
+  反向检查覆盖错误记录、错误标定路径、修改后的实测关节、遗漏已有标定四种拒绝情况。
+  从零导出第二组也通过：三路 H.264 全片解码，125 帧、320×180、15 fps，轨迹与补充包一致。
+  证据 local/droid-source-audit/extraction-validation.json；语法检查与 git diff --check 通过。
+- 使用说明 tools/DROID_EXTRACTION.txt，根 README 已链接；旧 local/droid-selection/package.py
+  已停用并指向新脚本，避免以后又生成大量附加文件。当前只补建模输入，没有改仿真服务或公共发布。
+
+2026-11-19 | test4 父子对象关节输入适配完成，圆环物理先查资料
+------------------------------------------------------------
+- 用户要求先完成输入适配，再查 MuJoCo 圆环处理资料，物理方案另定。本轮不推进物理验收或发布。
+- 收到 data/scenes/DROID_s00000_r00000.blend：284 帧/15 fps，229 对象、205 网格、0 Armature。
+  文件哈希 e4b479bff697d6dab5dbee0f560ae39531b0ecebc4d6271d32e30db948eeb1c1，未修改源文件。
+  原导入失败是识别器仅接受机械臂骨架，误把机器人加入物体候选并误认腕部相机为世界相机。
+- extract_blend 新增逐帧对象局部变换；run 在提取器更新后使旧提取缓存失效。
+  robot_arm 分支新增 object_joints 表示，按来源列标签或显式 chain 读取；校验序号、层级、
+  固定基座与单轴旋转，仍使用原 FK/符号零点检查，没有新增一种数据集分支。
+- test4 的七关节与原 NPZ 最大误差 9.9924e-8 rad；所有连杆 FK 通过，最大离散约 0.0003。
+  配置显式绑定基座/法兰、圆桌、任务圆环/托盘/陪衬环，输出 runs/test4-input/。
+- 新增 droid_trajectory NPZ 读取：核对关节、帧索引、标称时间与校验值，保留实测 g 与原始 g_cmd。
+  导出 demo.npz 284 帧，g/g_cmd 与来源逐项相等；修正归一化 observation.gripper_position
+  被旧属性识别逻辑误当成 driver 弧度再除以 0.8 的问题。
+- 原网格机械臂反向绑定由 object_motion.py 实现，保持父子关系/parent inverse；10 个夹爪局部
+  动画对象按闭合量插值，原有骨架和 UMI/Ego 导入机器人分支保持兼容。便携导出包含新运行模块。
+  284 帧、85 个机器人子树对象的世界位置最大误差 4.106e-7 m，矩阵元素最大误差 1.083e-6。
+- 腕部正确绑定 link7，相对位置离散 0.00026189 mm；按 source_view 关联视频。
+  主视角/wrist 在 1/165/284 帧均用实际 blend_worker 渲染并检查；这只是动画绑定，不是物理回放。
+  夹爪实测范围 [0,0.669604]，范围外仅端点段视觉外推，机构精度未验证，说明中明确记录。
+- 新增五项输入适配测试，完整 b2s 测试 28 passed（23.75 s）；test1/test2/test3 原 spec
+  的 Blender 首帧渲染均成功。git diff --check 和语法检查通过。未重启现有服务。
+- 输入证据 local/test4-input-validation/binding-validation.json（绑定最终 spec/demo/source 哈希）、
+  local/test4-input-pipeline.log、local/test4-input-tests.log；配置/复现说明 configs/test4_README.txt。
+- 几何边界：现有 spec 仍把不支持的圆环退化为 box/部分 ring 误判 cylinder；这些碰撞会填孔，
+  不能用其验收/发布。另有倾斜叠放与原参考轨迹 221–223 帧被旧修复逻辑调整，后续物理阶段须核查。
+- 查阅 MuJoCo 3.3.7 官方文档、同版本 torus.xml/torus.cc、CoACD 作者仓库：
+  普通 mesh 碰撞为凸包；非凸物体可拆成同一 body 的多个凸 geom；官方另提供 mujoco.sdf.torus。
+  SDF 接触采用多起点梯度搜索，不能把插件存在等同于本场景稳定可用。
+- 建议以凸分解为通用路线，SDF 理想圆环作对照。蓝环采样尺寸外径约 92.71 mm、内径 37.34 mm、
+  高 26.42 mm；环壁径向宽约 27.69 mm，接近 28.5 mm 实测停止开口，腕部图也显示夹的是环壁。
+  旧的整体外径抓取宽度告警不能直接解释成建模错误；后续需按内外接触面验证。
+- 资料链接、方案取舍及建议验收顺序记录在 configs/test4_collision_research.txt。
+  尚未实施凸分解/SDF、未安装额外包、未改圆环物理参数，代码仍未提交/推送。
+
+2026-11-19 | test4 圆环 CoACD / SDF 两条路线实测与经验记录
+--------------------------------------------------------
+- 用户要求两条方案都尝试，建立独立实验目录 outputs/test4-ring-experiments/，未改生产 spec、
+  现有 Web 服务或公共包。新增 tools/r2pear/experiments/ 的网格提取、分解、对照及错误复现脚本。
+- 从原 Blender 完整提取任务环（20480 顶点、40960 三角形），源文件哈希保持不变。
+  CoACD 1.0.14 / trimesh 5.2.1 仅安装至 local/ring-experiment-deps，不更换项目运行依赖。
+  两种碰撞共用原网格质量/惯量；质量约 69.96 g，来自假设密度 600 kg/m³，并非实测。
+- CoACD 1 mm 分出 69 块，2 mm 分出 18 块；均为一个刚体上的多个凸 geom，不重复计质量。
+  官方 SDF torus 按内外径拟合，保留中孔，但忽略防滑纹并使高度比原物体多约 1.27 mm。
+- 两条路线均通过中孔/环壁探针。在 box 桌面的静置、掉落、限力夹持/抬升/释放均通过；
+  69 块 / 18 块 / SDF 最大抬升约 35.87 / 34.85 / 37.17 mm，夹持最深接触重叠
+  3.46 / 3.22 / 2.09 mm，仍需后续接触精度检查，不等于整项任务合格。
+- SDF 对 plane 的静置、掉落和释放后仍抖动；同参数改为 box 后稳定。
+  记录碰撞对依赖性，不能概括成“SDF 一定不稳定”。18 块局部测试仍通过且单次运行成本较低。
+- 完整原始关节/夹爪回放：两档 CoACD 均完成 283 区间但 on(blue_ring,tray_floor)=false，
+  released/upright/all_at_rest=true；最大抬升约 22.84 / 21.74 mm。test4 尚未完成任务。
+- SDF 完整回放在 8.538 s 报 Node not found；对机器人碰撞 mesh 预生成 SDF 后仍在
+  10.106 s 报同错。保留 MJB+final_qpos，单次 mj_forward 即可在默认碰撞过滤下复现。
+  保持位掩码语义的诊断回调最后记录到 g_base mesh / ring_sdf 候选碰撞对；未断言引擎根因。
+  错误运行 complete=false、success=null，未将执行异常冒充任务谓词结果。
+- 源模型 estimated_grasp_tip_in_flange_m 与原生 pinch site 相差约 20.20 mm、闭合轴约 2°；
+  源标注为估计值，暂作为抓取对齐线索，未直接挪模型/改轨迹来消除差值。
+- 首轮 mocap 瞬移夹具缺少正确升降速度，不能据其“未夹起”判断摩擦失败；已换真实 slide
+  升降与每侧 20 N 限力夹具重跑，旧结果明确标记作废。诊断 contactfilter 须保留默认位掩码。
+- 结果/条件/边界见 configs/test4_collision_experiments.txt；复现命令见实验目录 README.txt；
+  汇总 experiment-summary.json 记录 8 组运行和 117 个代码/输入/结果文件哈希；
+  pinch-comparison.png 显示两种碰撞几何的实际夹持状态。更新 test4_README 与资料页进度。
+- 最终错误处理改动重跑 SDF 场景，仍在相同时间/区间复现；单状态复现、语法检查、
+  git diff --check 均通过。未重复改动或运行核心管线测试；此前输入阶段 28 项测试结果仍单独保留。
+- 下一步优先以 18 块 CoACD 检查实际指垫/环壁/法兰对齐，再完善其余场景几何和物理验收；
+  SDF 暂留作对照。当前不具备 test4 发布条件，所有改动仍未提交/推送。
+
+2026-11-19 | test4 凸分解实验接入 WebUI 预览
+------------------------------------------
+- 用户要求先看 WebUI；启用服务器 127.0.0.1:8094，沿用电脑 9004 的转发编号约定，
+  VS Code 工作区加入 8094 标签。没有更改现有 test1/2/3 服务或界面布局。
+- runs/test4-preview/ 使用 18 块 CoACD 实验 XML，独立 launcher 只在本进程加载该模型，
+  启动/重置校验 XML 哈希；通用 sim.build 不变。来源、说明见 configs/test4_WEB_PREVIEW.txt。
+- Blender 绑定增加可选 initial_body_rotation_base；该预览蓝环使用完整初始旋转，
+  避免完整姿态碰撞与原 yaw-only 视觉绑定发生重复旋转；旧场景缺省行为不变。
+- HTTP 首页/状态和 MuJoCo/Blender 各三路画面成功；实际 Chromium 无页面脚本错误，
+  三路图像均加载，Z+ 执行 2 个控制步，重置后步数归零。证据 local/test4-web-check/。
+- 仍是实验预览，完整任务未通过；原 oracle 按钮不是 DROID 录制轨迹回放。
+  没有把这次预览当作物理验收，没有公共发布、提交或推送。
+
+2026-11-19 | 修复 test4 首次访问整页空白的端口转发
+------------------------------------------------
+- 用户打开 9004 空白。服务器 8094 首页正常，9004 未监听；VS Code remoteagent.log
+  23:35:20 明确记录 Failed to connect tunnel to localhost:9004，确认隧道目标与服务端口不符。
+- 补齐此前 test3 已用的兼容方式：local/test4-forward-alias.py 将回环 9004 转到 8094，
+  同时绑定 127.0.0.1、127.0.1.1、::1。未改变 WebUI、模型或原有服务。
+- 工作区端口标签并不等于已经修改用户电脑的实际隧道；首次部署只验证 8094 不够。
+  后续交付应同时检查用户所用端口、localhost 地址解析和转发后的页面。
+- 修复后 127.0.0.1 / 127.0.1.1 / ::1 / localhost 的 9004 首页均返回 200；场景身份、
+  Blender 腕部和 Chromium 三路画面均通过，证据 local/test4-web-check/forward-validation.json。
+- 用户明确要求以后自动添加。新增 tools/r2pear/ensure_web_forward.py 并接入公共启动器的
+  start/restart（含服务已启动的情况）：自动确保 900x→809x，健康则复用，不健康且端口冲突则报错。
+  规则写入 AGENTS.md；后续交付检查必须包含 900x，不能仅改工作区端口标签。
+
+2026-11-19 | 修复 WebUI 切换残留，test4 oracle 改为环壁抓取
+--------------------------------------------------------
+- 用户反馈 Blender→MuJoCo 后 wrist 留在 Blender；浏览器受控延迟复现：切回后的 stream src
+  被旧 Blender 响应覆写为 blob。固定视角与自由视角增加 viewGeneration 检查，过期帧丢弃；
+  切换时强制刷新自由视角，GET /frame 不再在完成时隐式开启 Blender 模式。
+- 修复已部署到 test4；同样的延迟响应回归通过，wrist 保持 MuJoCo 流，自由视角来源为 MuJoCo。
+  证据 local/test4-web-check/view-switch-before.json、view-switch-fixed.json。
+- 用户指出夹爪在孔中合拢：原网页 oracle 抓取点确实为环中心，下降后水平偏差仅约 0.34 mm；
+  闭合结束没有持续指垫接触，抬起后圆环仍留在桌面。该网页路径不是原始 DROID q/g_cmd 回放。
+- 离线对照：只偏移到环壁仍因默认工具高度/闭合前伸补偿而抓空；调整抓取高度后可抬升约 10 cm。
+  默认托盘中心已被橙环占据；选择空位并补偿偏心抓取的工具-物体变换后，四项任务谓词均通过。
+- oracle.py 增加可选物体局部 grasp_offset_local_m、支撑局部 place_offset_local_m；
+  参数是人工指定的 oracle 提示，不是自动识别能力。配置 configs/test4_preview_oracle.json，
+  仅应用于 runs/test4-preview/；没有修改原始轨迹、Blender 资产、质量/摩擦或碰撞模型。
+- 当前初态离线结果：托盘承重 0.685 N / 重量 0.686 N，倾角约 0.08°，松手、平放、静止通过。
+  test1/test2/test3 oracle 实际物理回归均成功；它们没有新增偏移配置。
+- 本次成功限定为定制 oracle，可解性与真实动作复现分开记录。test4 原始轨迹回放仍未通过，
+  20 mm 抓取点差异仍只是估计标注对比的线索，没有据此确认原始回放失败的根因。
+- 网页 oracle 首轮浏览器 60 s 等待超时，但随后 9004/state 确认 102 步后 success=true，
+  托盘承重约 0.686 N、倾角约 0.08°，所有谓词通过。用户随后重置并再次执行，未强制打断。
+- 用户询问与原始 DROID 差距及 RL 是否必须复刻过程。量化同模型轨迹：原始物理回放
+  18.678 s / 工具路径 1.407 m；定制 oracle 6.468 s / 1.024 m。静置后基准抬升约 19 / 102 mm。
+  指令 FK 与 oracle 路径的最近点距离中位约 64 mm、90 分位约 122 mm（忽略时间/顺序）。
+  数据与口径见 configs/test4_trajectory_comparison.txt；原始复现与 RL 环境可用性分开验收。
+
+2026-11-20 | test4 原生 Blender 显示、原始 DROID 回放调试；接收 test5
+-----------------------------------------------------------------
+- 用户先要求准备 test4 发布及高清视频、更新日志并准备 test5；随后要求先修 Blender 夹爪，
+  将网页改为原始 DROID 回放检查失败。优先完成后者，发布待办保留，未向公共区域写入 test4。
+- Blender 视觉原先用建模夹爪与测量闭合量插值，指垫位置不同于 MuJoCo。增加可选
+  robot_visual_source=mujoco，隐藏运行时的原机器人，显示并驱动实际仿真网格；源 blend 不改。
+  原生 wrist 解除建模父级及动画约束，直接接受物理相机世界位姿，避免二次变换。
+  同状态 before/after/native MuJoCo 图见 local/test4-native-visual/。
+- 通用 spec.load/sim.build 支持相对 model_xml+SHA256，以便 Blender 子进程读取真实的
+  18 块圆环模型，不再仅在 WebUI 主进程覆盖 S.build。随机初态覆盖暂不支持并明确拒绝。
+- 增加 web_playback.type=source_demo；test4 按钮明确显示“回放原始 DROID 轨迹”，
+  自动重置后执行原 q/g_cmd，物体依旧由物理推动，未使用 oracle 规划或动画硬绑定。
+  原 demo SHA256 不变；无渲染节奏干扰时，与原离线回放最终 qpos 最大差为 0。
+- 浏览器通过 9004 验证完整 284 帧失败回放、取消/重置、三路 Blender 和切回 MuJoCo，
+  无脚本错误。28 项 b2s 测试通过（30.04 s）；语法检查和 git diff --check 通过。
+- 用户看到原始回放在环外闭合。第 137 帧右指垫到环的几何距离约 52.8 mm，仅左连杆碰环；
+  圆环短暂抬起后掉回，并非有效双指夹持。记录与第一版 oracle 孔中心空夹的区别。
+- 进一步定位：机器人动之前，蓝环被红环的箱体近似推偏。初始蓝/红碰撞重叠约 8.67 mm；
+  正常静置 0.5 s 水平漂移 23.09 mm，内存中只排除这一对碰撞后降到 0.183 mm。
+  排除仅用于因果诊断，未应用到服务；正确方向是改善陪衬几何，而不是关闭碰撞或篡改原轨迹。
+- 发布草稿 runs/test4-release/ 将物体静置 3 s 后初态固化，V1 最大漂移 1.09 mm、最深重叠
+  2.44 mm，V1 通过；但尚未形成正式导出、浏览器迁移验证或高清发布视频，不能称已发布。
+  以后导出须明确区分 oracle 演示与原始 DROID 回放，不能把前者成功写成后者成功。
+- test5 已找到 DROID_s00000_r00008.blend：红甜椒从浅盘取出放桌面，125 帧/15 fps，628 对象，
+  对象关节链无 Armature。显式七关节局部 z 角与原 NPZ 最大差 0，measured_closure 最大差 0。
+  缺列标签，后续需显式链配置；完整 FK、组合物体、物理与相机尚未验收。
+  详见 configs/test5_PREFLIGHT.txt，尚未部署 test5。所有改动仍未提交/推送。
+
+2026-11-20 | test4 初态碰撞修复、验收增强与原始轨迹复查
+----------------------------------------------------
+- 经验：陪衬物的碰撞近似也会在 reset 静置阶段推偏目标，不能只核验目标物或静置后画面。
+  原蓝/红重叠约 8.67 mm，蓝环 0.5 s 水平漂移 23.09 mm；单独恢复红环真实凸分解/姿态后
+  降到 0.183 mm，证明该碰撞近似是主要水平偏移来源。单改红环会暴露其与黄绿环的粗糙碰撞，
+  因而完成五个陪衬环的 CoACD（2 mm 阈值），保留既有蓝环 18 块。
+- 恢复圆桌真实圆形尺寸及基座系完整倾斜、托盘底板完整姿态；托盘边框/加强块等 12 个构件
+  归入同一托盘刚体并同步 Blender 视觉陪衬，避免固定边框与独立运动底板相互推挤。
+  新增 experiments/repair_scene_collision.py，显式命名替换与刚体组装，不烘焙静置位姿。
+  质量仍按源网格体积×假定密度 600 kg/m³，未声称实测质量；未关闭不同物体间碰撞。
+- 最终模型：蓝环 0.5 s 水平漂移 0.0060 mm、Z 位移 -0.132 mm；托盘 3 s 漂移 0.030 mm。
+  场景 V1 仍不通过：堆叠陪衬环残余重叠约 6.40 mm，最大最终漂移 6.06 mm、峰值 8.20 mm。
+  这些残余问题明确保留，不能称整场物理验收通过，未发布。
+- validate.py V1 新增零静置初始重叠对、XYZ/水平/峰值位移、转角和源首帧→编译初态→静置终态
+  的位置对照；2 mm 位移门槛覆盖峰值，避免回到原处或预先固化初态掩盖问题。初始源偏差为
+  单独审阅项，V1 ok 不等价于已标定场景一致。新增真实物理回归两项，完整 b2s 30 项通过。
+- 原始 q/g_cmd/demo 未变（demo SHA256 7d0ced6b47b776054d1438451371cf1936dbf11d17c29f770d51c820bed3d0ac）。
+  完整 284 帧回放仍失败：最大抬升约 8.63 mm，没有放入托盘；第 137/141/146 帧接触仍是
+  左侧 follower 碰蓝环，并未形成双指垫有效夹持，151 帧已脱离。没有用 oracle 替换结果。
+- 已更新并重启 test4 8094/9004，继续“回放原始 DROID 轨迹”；通过 9004 核验首页、身份及
+  MuJoCo/Blender 各三路 JPEG。之后用户实际回放并确认靠近但仍在环外闭合；未再重置其操作。
+- 用户提出建模整体偏移。核对：蓝环编译初态与源 Blender 差 <0.0001 mm；原始 q 的原生法兰
+  FK 对原数据最大位置差 <0.0001 mm，没有发现此环节的整体坐标错误。
+  源 Blender 场景尺度 1.269996 是视觉拟合，原相机标定缺失；源估计夹持点与原生 pinch
+  相差 20.20 mm（不是已证实的标定误差）。闭合阶段源蓝环动画横移约 15 mm，物理并未复现。
+  下一步需区分场景相对机器人配准、夹爪几何/安装、源物体动画；不能仅凭单次抓取直接平移全场。
+- 证据 outputs/test4-collision-fix/：repaired-results.json、repaired-trace.npz、repaired-grasp.json、
+  registration-audit.json、web-check/、tests.log。复现与限制见 configs/test4_collision_repair.txt。
+  未改源 blend、原始轨迹，未提交/推送，test4 公共发布及 test5 处理仍待后续。
+
+2026-11-20 | test4 按原始轨迹夹持点进行位置对照：任务成功
+-------------------------------------------------------
+- 保持原始 q/g_cmd、碰撞与物理参数不变，以首次半闭合的第137帧原始 FK pinch 和源环壁
+  中心线半径32.512mm，推导最小桌面平移。基座系[3.656,-30.008,-0.135]mm，
+  Blender世界系约[-30.229,-0.225,0]mm；这是明确标记的配准假设，非实测标定修正。
+- 四组：未平移抬升8.63mm失败；只用动画闭合阶段15mm位置偏移抬升7.58mm失败；
+  只移动蓝环抬升159.24mm，进入托盘但倾角49.03度失败；桌面与任务物体整体平移后
+  抬升160.07mm，on/released/upright/all_at_rest全部通过，最终倾角0.84度。
+  后两组第139～217帧连续出现双指垫接触。单移蓝环有邻物重叠引起6.57mm额外reset漂移，
+  整体移动保留物体相对关系，蓝环reset水平漂移约0.006mm。
+- 证据支持任务区域相对机器人配准偏差，但工具安装/尺寸与场景尺度仍可能有等效误差。
+  不把单次成功宣称为真实标定完成。陪衬环V1仍失败，无公共发布、无随机初态验收。
+- 检查原视频发现闭合阶段确有蓝环位移与后续抬升，澄清不能把源Blender的15mm动画位移
+  直接判成虚构。去掉所有物体参考轨迹数组独立回放，逐帧qpos最大差0且仍成功：物理不靠动画。
+- 增加 experiments/test4_registration.py 保存全部对照模型/轨迹/接触/结果；
+  blend_worker增加可选静态视觉世界平移，以使该实验的Blender桌面显示跟随物理桌面，
+  动态物体仍按MuJoCo位姿驱动。原源blend与demo保持不变；30项b2s测试通过。
+- 9004切到独立 runs/test4-registration-preview，按钮明确“回放原始 DROID（位置对照）”；
+  原 runs/test4-preview 保留可切回。验证首页身份、MuJoCo/Blender六路画面及浏览器，
+  未触发用户回放或重置。全部细节见 configs/test4_registration_experiment.txt。
+- outputs/test4-registration/ 保存原视频接触关键帧、四组结果、动画独立性验证和对照视频。
+  仍未提交/推送。正式发布须先处理初态残余问题与标定真实性，不继承旧发布草稿的验收状态。
+
+2026-11-20 | test4 发布准备完成；加入 DROID 整体配准/抓取残差验收
+-------------------------------------------------------------
+- 按用户要求增加“先整体、再局部”的配准检查：提供 droid_trajectory 与 flange 时，run.py
+  自动生成 registration-report.json，写入决策告警。默认全局P95位置5mm/旋转2度告警；
+  扣除整体变换后的抓取残差超过 max(5mm,3×整体拟合残差P95) 告警，阈值均可配置。
+  原始DROID实测轨迹优先，检查工具几何后验证任务区位置修正，不改 q/g_cmd 或动作时序。
+  未标定的建模夹持点不是物体真值，不能直接按单个局部差值平移全场。规则已写AGENTS.md与b2s README。
+- test4 实测整体法兰P95误差约0.000165mm，局部估计夹持参考残差20.20mm，正确触发局部告警。
+  保留此前原始轨迹条件下约30.2mm场景位置修正的四组对照与未标定说明。
+- 发布候选 runs/test4-release-v2/ 将修正后场景静置3秒的物体位姿作为显式新初态。
+  源初态原先V1失败没有删：initialization-report.json保存失败、逐物体平移/旋转及新初态结果。
+  新V1最大峰值漂移0.04347mm、最深接触-0.05526mm，原始DROID回放成功。
+  prepare_release_initial.py独立复现得到完全相同XML与demo，证据local/test4-release-reproduction.json。
+- 导出器支持多个同名凸分解资产按内容哈希打包，显式MJCF变为相对路径并保留XML精度。
+  迁移与浏览器验证按配置执行source_demo/oracle，分别标注automatic_kind，不能用oracle替代原始回放。
+  source_demo必须完整结束且成功；修复浏览器检查中原始回放自动reset导致的reset_count等待条件。
+- 36项b2s测试通过；原生XML/运行时一致性、独立目录迁移、控制/取消/重置、完整284帧原始回放、
+  GLB70个动画通道和真实Chromium浏览器、三路Blender画面均通过。数据q/g_cmd与源blend未修改。
+- 前台导出曾收到SIGTERM中断，未完成产物单独保留；后台重新导出完成。高清CPU预览停止后，
+  复用此前宿主机GPU0/RTX4090的OptiX离线流程；没有改变其他场景服务或实时CPU渲染设置。
+- Blender高清视频已完成：1920×1080、30fps、Cycles64samples、OptiX/GPU降噪；592帧、
+  19.733333秒，来自300个物理记录状态（实际渲染299个采样用到的状态）。首/中/末及放置帧已检查，
+  全帧尺寸/非空、ffprobe帧数/编码、ffmpeg全片解码及源场景/轨迹哈希均通过。
+- 已生成齐套本地发布目录 outputs/test4-release-ready/：GLB+回放JSON+MuJoCo视频、交互目录/归档、
+  Blender高清视频、浏览器报告、配准/初态修正报告与校验清单。最终包与视频来源/浏览器哈希复核通过。
+  用户本轮要求“准备发布”，因此公共 /root/data/simulation/ 尚未新增test4；没有推送GitHub。
+- 9004已切到该完整候选的interactive/scene，使用公共web_ui.py与相对模型路径，自动复用8094转发。
+  首页身份及MuJoCo/Blender六路画面通过；原未平移和配准对照场景都保留，可用B2S_TESTDIR切换。
+  注意：这是单初态原始任务及可交互交付验证，不等于相机标定完成或随机初态全面通过。
+
+2026-11-20 | test4 发布到公共目录
+--------------------------------
+- 按用户明确要求，将已验收的 outputs/test4-release-ready/ 原子发布到：
+  /root/data/simulation/DROID-蓝色圆环放入木托盘-test4。
+- 包含展示回放、可交互MuJoCo目录及归档、1080p/30fps Blender视频、配准与初态修正报告。
+- 发布后复核335个文件哈希，与本地完整包一致；原始DROID完整回放成功的浏览器报告绑定正确，
+  视频来源核验通过。复核记录 local/test4-publication.json。
+- 9004继续使用同源本地完整包，没有重启或中断当前交互；其他场景服务未改。
+- 已同步test4当前状态说明；保留未标定、仅单初态验收等限制。没有提交或推送GitHub。
+
+2026-11-20 | test5 输入、完整碰撞与原始DROID任务通过
+-------------------------------------------------
+- 接收 DROID_s00000_r00008.blend：125帧/15fps，红甜椒从金属浅盘取出放到桌面。
+  保留源文件；显式七个对象关节链通过共享robot_arm/FK，最大离散约0.0002mm/deg。
+- object_motion允许embodiment.gripper_property显式映射measured_closure，仍验证归一化与
+  局部动画唯一性；增加合法别名与非法值回归。37项b2s测试通过，无GitHub推送。
+- 原实测关节提取舍入误差最大1.03e-7rad，原夹爪指令逐值一致；125帧完整回放，无oracle替代。
+- 甜椒视觉使用现有visual_roots跟随整个父级；果柄/萼片、金属盘环柄为随动视觉装饰，未建独立碰撞。
+  Blender/GLB统一使用MuJoCo原生机器人视觉，避免作者夹爪中心与物理接触位置不一致。
+- 复用test4完整网格与CoACD流程，新增非圆环专用prepare_convex_collision.py，密度显式记录。
+  甜椒54、盘162、小红果12、棕色物20凸块，1mm算法阈值；保留盘内腔及完整源位姿。
+  质量按600kg/m³估算，金属盘7800kg/m³；不是实测质量。其他静态背景仍按box近似。
+- 初始box退化版V1漂移20.36mm/穿透10.23mm，即使V2终态通过也拒绝发布。
+  修复网格后原始轨迹已成功，无初始重叠，但甜椒自然下落/转动带来3.071mm最终、3.658mm峰值漂移。
+  显式静置归位后V1峰值0.01510mm、最深接触-0.00465mm；前后失败与调整均保留。
+- 原始轨迹仍成功：最大抬升102.65mm，搬运段双侧指垫接触，最终on(table)/released/all_at_rest通过。
+  不改轨迹、不用物体动画驱动物理、没有按局部告警平移任务区域。
+- 配准检查：整体法兰P95约0.000135mm，两建模指垫中点与native pinch残差30.64mm；
+  建模宽度59.2mm与实测停下开口46.8mm差异也保留告警。成功不证明工具或相机已经标定。
+- 源相机有部分外参、无实测内参；沿用Blender拟合视角，未完成投影验收。单固定初态通过，未做随机初态验收。
+- runs/test5-input为原诊断、runs/test5-preview为完整源位姿、runs/test5-release为显式归位版本。
+  local/test5-service.sh自动部署8095/9005；已核对9005身份与MuJoCo/Blender各三路非空图像。
+  outputs/test5-delivery通过物理、GLB和独立迁移验收。详细限制和复现见configs/test5_README.txt及RELEASE_NOTES。
+
+2026-11-20 | test5 完整交付、GLB材质修复与公共发布
+------------------------------------------------
+- 发现GLB展示中甜椒变白，原因是glTF不支持Blender噪声驱动的Color Ramp基础色。
+  export_display仅在临时导出进程近似这类颜色为渐变控制点均值；保留图像纹理，原blend与Cycles不改。
+  新增*.glb.materials.json记录近似；实际Blender图、GLB颜色值和最终浏览器画面均核验为红色。
+- 重建outputs/test5-delivery-final并重跑迁移和浏览器验收：67绑定通道、位移误差0、无JS错误，
+  原始125帧DROID回放成功，重置步骤归零，MuJoCo/Blender各三路画面正常。
+- 1080p/30fps、Cycles64samples、OptiX RTX4090高清视频完成：277帧/9.233333秒。
+  141物理记录状态/140实际渲染采样，首/末/抓取图已检查，全部PNG、ffprobe和全片解码通过。
+  修复GLB前后model/spec/native_trace/source_blend逐字节一致；证明记录local/test5-hd-source-equivalence.json。
+  高清使用相同物理状态重新编码并绑定最终包来源，没有重算或改变轨迹。
+- 齐套本地包outputs/test5-release-ready；首次公共写入被自动审批要求明确目的地授权，未执行写入。
+  用户随后明确“确认发布到该公共目录”，再次审批通过并原子发布：
+  /root/data/simulation/DROID-红甜椒从盘中取出放到桌面-test5。
+- 发布后473个文件、浏览器绑定哈希和视频来源复核通过；local/test5-publication.json留证。
+  9005服务切到本地齐套包interactive/scene，自动配置8095兼容入口；公共发布不依赖本地服务。
+  更新test5_README/RELEASE_READY/RELEASE_NOTES；没有提交或推送GitHub。
+
+2026-11-20 | 今日收尾：五个test的管线边界与交付文件说明
+----------------------------------------------------
+用户确认今天任务完成；本条记录本次确认的现状和文件用途，后续按此接续。
+
+一、已完成与通用性边界
+- test1～test5均已产出并发布可交互MuJoCo环境、展示回放和同源Blender高清视频。
+- 当前是共用管线加每场景配置及必要修正；尚未统一封装、验证“从原始输入一条命令重建全部五个test”。
+  不能宣称任意Blender和原始数据都能无需处理直接变成合格仿真。
+- test1 / DROID：绿色物块搬放。Blender机器人关节动画经FK校验，夹爪指令来自匹配DROID数据。
+- test2 / UMI：杯子放杯碟。Blender手持夹爪位姿和开合 → 基座搜索/IK → Panda；
+  仍有local/prepare-test2-saucer.py专用补齐流程，恢复杯碟、视觉绑定与多点接触。
+- test3 / EgoDex：手机放盒盖。Blender夹爪位姿和指间开口 → 同一套基座搜索/IK；
+  使用显式物体/视觉根配置、薄物体抓取适配和三倍执行时间。
+- test4 / DROID：蓝环放托盘。与原始数据核对的关节及原夹爪指令；
+  完整凸分解碰撞、约30.2mm任务区域位置修正、显式初态修正后原始回放成功。
+- test5 / DROID：甜椒从盘中取出。与原始数据核对的关节及原夹爪指令；
+  完整凸分解碰撞和显式初态修正后原始回放成功，没有按局部配准告警平移任务区。
+- UMI/EgoDex当前依赖Blender所表达的操作，原始UMI采集轨迹及EgoDex HDF5人手直接控制
+  尚未完成实数据端到端独立验证。不能将原始适配器可读/单测通过等同于该分支已验证。
+- 共用部分：提取/解析、robot_arm或handheld_gripper分支、任务spec、MuJoCo、控制与谓词、
+  WebUI/Blender显示及导出验收。当前五例均为Panda+Robotiq抓取放置，单场景通过不等于
+  完整相机/物体标定、任意新任务适用或所有随机初态可解。
+
+二、公共交付目录中各文件的用途（不同test有少量差异）
+- interactive/：真正可运行、控制、重置的实时仿真环境；最重要的交付。
+- interactive-environment.tar.gz：interactive/的可迁移压缩副本；使用时二选一即可。
+- preview.html、viewer/：浏览器三维展示页面与前端依赖。
+- mujoco-web3d-scene.glb：展示用几何与材质；不是实时物理环境。
+- mujoco-web3d-replay.json：已经记录的机器人/物体运动，供展示播放器使用。
+- mujoco-web3d-manifest.json、scene.json：场景身份、文件索引、相机和回放信息。
+- mujoco-sim.mp4、mujoco-poster.png、mujoco-final.png：MuJoCo演示视频及首尾截图。
+- blender-hd/：同一次物理轨迹的Blender高清视频、首尾图、渲染及来源验证报告。
+- validation.json、browser-validation.json：静置、完整回放、迁移、显示和网页交互验收。
+- registration-report.json、initialization-report.json：主要见test4/5；配准告警和初态修正，
+  保留修正前失败及逐物体调整，不能把修正后通过写成原建模初态通过。
+- provenance.json、checksums.json、export-status.json：来源、SHA256完整性及导出完成状态。
+- README.txt、SCENE_NOTES.txt、各类.log：使用方法、物理近似/验证限制及排错记录。
+- *.glb.bindings.json：展示节点与物理刚体/几何的对应关系；test5新增*.glb.materials.json
+  记录程序化颜色的GLB近似，不改变原始Blender或Cycles效果。
+
+三、interactive/中的关键文件
+- run.py、requirements*.txt：运行入口与依赖；包内不含虚拟环境或完整原始数据集。
+- model/scene.xml及模型资产：MuJoCo刚体、碰撞、关节、执行器等物理模型。
+  单独XML不包含完整任务判定和控制逻辑；用task_initial关键帧恢复任务初态。
+- scene/stage0_spec/task_spec.json：任务配置、物体、成功条件、相机和显示绑定。
+- scene/stage0_spec/demo.npz：输入机器人的示范轨迹；具体来源取决于上面的数据分支，
+  不应把UMI/EgoDex重定向结果一概称为原始采集轨迹。
+- scene/native_trace.npz：实际MuJoCo运行产生的物理状态/位姿；与输入demo区分。
+- source/scene.blend：Blender场景，提供完整背景、材质和精细渲染。
+- tools/、assets/：随包控制器、任务判定、WebUI和机器人资源/许可证。
+- 实际使用主要取interactive/或tar.gz；只看效果用preview.html或视频。浏览器三维回放
+  播放记录，实时物理由Python/MuJoCo服务执行。迁移验证不是全新OS依赖安装验收。
+
+四、本地过程文件与后续接续
+- runs/、outputs/、local/还保留失败版本、对照实验、碰撞资产、逐帧图片和排查日志，
+  它们用于复现与诊断，不全是运行公开环境必须携带的文件。
+- 公共根目录/root/data/simulation/；五份场景的目录名以test1～test5结尾。
+  对应服务约定服务器8091～8095 → 用户电脑9001～9005；不因今日收尾停止服务。
+- test4/test5最新齐套本地包分别outputs/test4-release-ready/、outputs/test5-release-ready/；
+  发布复核见local/test4-publication.json、local/test5-publication.json。
+- 统一从零重建入口、消除剩余场景专用步骤、UMI/EgoDex原始轨迹分支、标定与随机初态验证
+  均作为后续待办记录，本轮不继续扩展。GitHub仍未提交/推送，按用户计划积累后再整理推送。
+- 今日任务完成，保留当前服务与所有验收证据。
+
+2026-11-20 | 收尾追加：五个公共场景补齐真实/Blender compare视频，纳入发布流程
+----------------------------------------------------------------------
+- 按用户要求，五个已发布test目录均新增compare.mp4、compare-poster.png、compare-report.json、
+  COMPARE_README.txt；左真实，右既有Blender HD。1920×640/30fps，保留左右比例，无音轨。
+- test1真实画面来自仓库V3比较视频的左面板，172帧；本机无独立原片，明确记录二次编码证据来源。
+  test3/4/5分别用官方EgoDex MP4和已提取DROID exterior_1_left；全部源哈希与收据一致。
+- 本机原先只有UMI ep68轨迹和来源记录，无视频/zarr；用户补入data/umi/wrist_camera_ep68.mp4。
+  实测924帧、224×224、容器30fps，与建模记录一致；保存source.json收据。鱼眼不去畸变，
+  对照右侧总览并标明不同机位；按已记录的683帧裁剪量保留第684～924帧。
+- 对齐依据HD物理状态索引→保留的示范帧，保留test3三倍慢速和所有仿真末尾静置，末段左侧定格。
+  不做按总时长拉伸，不改变原始轨迹。画面显示源帧号/时间、播放时间及视角差异。
+- 新增render_compare_video.py、compare_validation.py、publish_compare.py；常规publish.py新增
+  --compare-dir及强制来源/帧映射校验。以后缺少compare或与HD/轨迹不符会拒绝发布。
+  AGENTS.md和导出README已更新；具体来源、复现和限制见configs/COMPARE_VIDEOS.txt。
+- 五份视频ffprobe帧数/编码、全片解码、源哈希与逐帧映射通过，实际检查首帧及中段画面。
+  20项相关回归通过，覆盖裁剪/慢速/结尾定格、错源拒绝、旧文件保持和拒绝覆盖。
+- 公共补充后逐个校验217/217/219/339/477个文件；所有原有文件哈希保持不变，仅校验清单扩充。
+  证据local/compare-publication-audit.json；本地视频outputs/test1-compare～test5-compare。
+- 对比用于观察重建与动作差异，不代表相机标定或原始人手控制通过；原有场景限制继续适用。
+  无WebUI重启、无已有视频/环境修改，未提交或推送GitHub。本轮追加任务完成。
+
+2026-11-20 | test3 当前管线原速复测与 WebUI 试验入口
+----------------------------------------------------------------------
+- 从源 Blender 用当前管线重新生成 runs/test3-original-speed，仅 retarget_time_scale 从3改1。
+  q/g_cmd与旧版完全相同；原速仍未抬起手机（0.05713mm），最大跟踪误差46.9894°，V2失败。
+  同一新场景三倍时长对照成功，抬升139.6508mm，最大跟踪误差13.8465°。
+- 保存独立配置、验证报告、速度对照和原速MuJoCo视频；公共目录、现有HD/compare均未改。
+- 用户要求网页查看：test3服务默认指向原速试验目录，保留8093/9003；自动按钮绑定demo校验值。
+  web_ui.py回放说明允许场景提供help，状态沿用场景label，避免EgoDex错误显示原始DROID。
+- 用户确认test5只是渲染慢，按要求不改、不重启、不做加速。
+- 经服务器9003真实浏览器验证：原速160帧回放结果与离线一致，取消/重置正常；Blender三路出图、切回MuJoCo正常，脚本错误0。证据local/test3-original-speed-browser/browser-validation.json。
+
+2026-11-20 | test3恢复三倍执行时长
+----------------------------------------------------------------------
+- 用户要求恢复：8093/9003重新使用runs/test3，10Hz（源30Hz，1/3速度）。
+  网页绑定同一demo并明确显示“回放 test3 轨迹（1/3 速度）”；原速实验和公共包均保留。
+- 明确流程边界：时间缩放配置和单次验证报告已在主流程；多速度扫描与接触对照仍为专项脚本，未自动化。
+
+2026-11-20 | 将速度诊断纳入主流程末尾，仅作最后兜底
+----------------------------------------------------------------------
+- 用户要求：常规流程/排查优先，没招后才降速。run.py新增
+  --last-resort-speed-diagnosis REASON，要求记录已排查项；默认跳过扫描，不与--skip-validate并用。
+- 调用位于普通验证及已启用的环境验收之后。初态失败、回放缺失/已通过、源时序不明或不一致均跳过；
+  执行前复核当前初态。每次从相同初态开始，原速失败后才测试2/3倍执行时长，倍数以源fps为准。
+- 新增speed_diagnosis.py，可由主流程或已有场景入口调用；输出stage4_diagnostics/speed-diagnosis.json，
+  包含原速/降速判定、跟踪误差、抬升、指垫接触帧、采样数、物理步间隔与来源哈希。
+  不修改spec/demo/正常validate，不自动替换发布轨迹。DROID原始时序结果也不被慢速成功覆盖。
+- 更新AGENTS.md和b2s README，明确人工排查说明不是程序已证明所有办法穷尽；降速成功不等于根因定位。
+- 19项相关回归通过（13项速度诊断门控/有界对照/输入保持，另6项初态和配准）。
+  test3源Blender完整主流程实测：原速失败，半速/1⁄3速度成功；每组160个采样，原30Hz demo与失败报告保留，
+  来源哈希全部一致。证据runs/test3-speed-diagnosis-smoke/stage4_diagnostics/speed-diagnosis.json。
+- 本轮不改公共发布包、不重启服务；9003继续保持前轮恢复的三倍执行时长。未提交/推送。
+
+2026-11-20 | test5 Blender切换慢：定位与交互预览修复
+----------------------------------------------------------------------
+- test5 MuJoCo/状态接口正常；Blender首次请求阻塞在原始scene.blend加载和Cycles同步，首帧约12秒，
+  后续低分辨率帧约8秒。不是按钮失效、不是物理线程或前端漏帧。
+- 试验过BLENDER_EEVEE_NEXT，但服务器surfaceless EGL返回EGL_BAD_MATCH，已撤回；test5恢复Cycles，
+  公共视频和场景资产未改。local/env.sh改为仅在未指定时设置渲染引擎/采样，避免服务显式配置被覆盖。
+- WebUI固定Blender agentview/wrist请求显式preview=1，后端使用低分辨率交互帧；高清渲染仍走原流程。
+  重启8095并实测agentview/wrist均HTTP200，256×144预览可返回。首次切换仍需等待场景初始化。
+
+2026-11-20 | 核对“昨天高清渲染可用 GPU”与当前实时 WebUI
+----------------------------------------------------------------------
+- 之前“当前驱动不可用”结论不完整：内核 nvidia 模块 570.195.03、8 张 RTX 4090、PCI 绑定均正常，
+  但本次检查时 /dev/nvidia* 设备节点消失，导致 nvidia-smi/CUDA/OptiX 用户态访问失败。
+- 用系统已安装的 nvidia-modprobe -u -c 0 恢复设备节点后，nvidia-smi 正常列出 8 张 RTX 4090；
+  这解释了昨天高清任务能用 GPU，而实时服务当时仍看不到 GPU。设备节点的持久化依赖宿主机启动/设备管理，
+  本次未重启宿主机或改驱动安装。
+- 昨天 render_blender_video.py 明确传入 R2P_BLEND_DEVICE=OPTIX、CUDA_VISIBLE_DEVICES 和 GPU降噪；
+  实时 web worker 只继承 local/env.sh 的 CPU Cycles/Mesa设置，所以两条路径配置不同。
+- 恢复节点后用 test5 原始 blend 做独立 OptiX 256×144/1 sample 探测：Blender 枚举 RTX4090，
+  OPTIX/CUDA 设备可用，GPU单帧渲染约8.18 s；大部分时间仍是首次同步/建立OptiX BVH，说明 test5 的
+  首帧慢不全是采样计算。未切换线上 WebUI 到GPU，发布资产与五个服务保持原状态。
+
+2026-11-20 | test1/test5 EEVEE 独立 A/B 试验（未接入线上）
+----------------------------------------------------------------------
+- 在恢复 NVIDIA 设备节点后，用原始 Blender 资产启动独立 BLENDER_EEVEE_NEXT worker，未修改9001/9005、发布包或原blend。
+- test1：冷首帧约7.48 s；连续 agentview/wrist/orbit 约0.33–0.44 s/帧，画面材质和相机可接受。
+- test5：冷首帧约19.67 s；连续 agentview 约10.37 s、wrist 9.29 s、orbit 7.39 s。独立静态探测与实时路径一致，
+  瓶颈仍是每次 apply_state 后完整依赖图/修改器同步，不是 Cycles采样；EEVEE不能单独解决 test5。
+- 两个临时 EEVEE WebUI 端口仅用于探测，已退出；正式服务保持原CPU Cycles配置。结论：后续若要实时高帧率，需通用的预烘焙运行场景/动态对象增量更新，再统一使用GPU EEVEE；不能只切换引擎。

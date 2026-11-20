@@ -159,6 +159,13 @@ def parse(ex, emb, robot, cfg, D, ee_world=None):
 
     obj_c = [n for n in meshes if OBJ_MAX_DIM[0] <= F[n]["dims"].max() <= OBJ_MAX_DIM[1]
              and F[n]["dims"].min() > 0.004 and np.linalg.norm(F[n]["center"][:2] - base_xy) < REACH]
+    # Explicit task meshes may be thin (phone/box floor) or larger than the
+    # automatic candidate limits. They still need real support geometry.
+    for n in cfg.get("objects", []):
+        if n not in F:
+            raise ValueError(f"Configured task object is missing or excluded: {n}")
+        if n not in obj_c:
+            obj_c.append(n)
     tab_c = []
     for n in meshes:
         if ex.is_dynamic(n):
@@ -263,7 +270,7 @@ def parse(ex, emb, robot, cfg, D, ee_world=None):
         f = F[n] if n in F else _frame(ex, n)
         c = classify(ex, n, f, cfg.get("shapes", {}).get(n))
         rgba, cwhy = _color(ex, n)
-        s = slug(n, used)
+        s = slug(cfg.get("object_names", {}).get(n, n), used)
         objects[s] = {"blend_name": n, **c, "center": f["center"].tolist(), "rgba": rgba,
                       "color_source": cwhy, "dynamic": ex.is_dynamic(n),
                       "on": [x for x in sup.get(n, [])], "bottom_z": float(bot.get(n, 0)),
@@ -306,7 +313,7 @@ def parse(ex, emb, robot, cfg, D, ee_world=None):
         on_robot = bool(anc & robot_set) or bool(anc & tip)
         moving = ex.is_dynamic(cn)
         cams[cn] = {**c, "mount": "ee" if on_robot else "world", "moving": moving,
-                    "stream": c["props"].get("video_stream")}
+                    "stream": c["props"].get("video_stream") or c["props"].get("source_view")}
         if moving and not on_robot:
             D.add(f"camera[{cn}]", "动态世界相机", "不挂在机器人上却在动（ego 头戴相机）；仿真里固定为首帧位姿",
                   warn=True)

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh"><meta charset="utf-8"><title>仿真轨迹回放</title>
+<style>
+body{margin:0;background:#19202a;color:#eee;font:15px system-ui}canvas{display:block}
+#bar{position:absolute;bottom:0;left:0;right:0;padding:16px;background:#111d;display:flex;gap:14px;align-items:center}
+button{padding:8px 18px}input{flex:1}#info{position:absolute;top:16px;left:20px;max-width:70vw}
+</style>
+<div id="info">正在加载场景…</div>
+<div id="bar"><button id="play">播放</button><input id="time" type="range" min="0" step="0.001" value="0"><span id="stamp">0.00 s</span></div>
+<script type="importmap">{"imports":{"three":"./viewer/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from './viewer/GLTFLoader.js';
+import {OrbitControls} from './viewer/OrbitControls.js';
+const info=document.querySelector('#info'), slider=document.querySelector('#time'), button=document.querySelector('#play');
+try {
+ const index=await (await fetch('scene.json')).json();
+ const entry=k=>index.files[k].file;
+ const replay=await (await fetch(entry('mujoco-web3d-replay'))).json();
+ const manifest=await (await fetch(entry('mujoco-web3d-manifest'))).json();
+ const gltf=await new GLTFLoader().loadAsync(entry('mujoco-web3d-scene'));
+ const scene=new THREE.Scene();scene.background=new THREE.Color('#c2cbd4');scene.add(gltf.scene);
+ scene.add(new THREE.HemisphereLight(0xffffff,0x636366,2.5));
+ const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(2,4,2);scene.add(light);
+ const camera=new THREE.PerspectiveCamera(manifest.camera.fovy_deg ?? 45,innerWidth/innerHeight,0.005,100);
+ camera.position.fromArray(manifest.camera.eye);
+ camera.up.fromArray(manifest.camera.up ?? [0,1,0]);
+ const renderer=new THREE.WebGLRenderer({antialias:true});renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ document.body.prepend(renderer.domElement);
+ const controls=new OrbitControls(camera,renderer.domElement);controls.target.fromArray(manifest.camera.target);controls.update();
+ const channels=replay.channels.map(c=>({c,node:gltf.scene.getObjectByName(c.node)}));
+ const missing=channels.filter(x=>!x.node);if(missing.length)throw Error('轨迹节点缺失: '+missing.map(x=>x.c.node).join(','));
+ let playing=false, current=0, last=performance.now();
+ const duration=replay.timestamps_seconds.at(-1);slider.max=duration;
+ info.textContent=index.task+' · 已记录的物理轨迹，可拖动视角；实时交互请运行 interactive/run.py';
+ const frameAt=t=>{let lo=0,hi=replay.timestamps_seconds.length;while(lo+1<hi){const mid=(lo+hi)>>1;if(replay.timestamps_seconds[mid]<=t)lo=mid;else hi=mid;}return lo;};
+ function draw(t){const f=frameAt(t);for(const {c,node} of channels){node.position.fromArray(c.translation[f]);node.quaternion.fromArray(c.rotation_xyzw[f]);}slider.value=t;document.querySelector('#stamp').textContent=t.toFixed(2)+' s';}
+ button.onclick=()=>{if(current>=duration)current=0;playing=!playing;button.textContent=playing?'暂停':'播放';};
+ slider.oninput=()=>{current=Number(slider.value);playing=false;button.textContent='播放';draw(current);};
+ addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+ function loop(now){if(playing){current=Math.min(duration,current+(now-last)/1000);if(current===duration){playing=false;button.textContent='播放';}}last=now;draw(current);controls.update();renderer.render(scene,camera);requestAnimationFrame(loop);}
+ window.b2sPreview={scene:gltf.scene,replay,channels,seek:t=>{current=t;playing=false;draw(t);},ready:true};
+ requestAnimationFrame(loop);
+} catch(e){info.textContent='加载失败：'+e.message;console.error(e);}
+</script></html>

@@ -1,0 +1,54 @@
+DROID 建模资料提取
+=================
+
+默认目录名：DROID_sxxxxx_rxxxxx（零基分片号、片内记录号，不是全局 episode_index）。
+每组只保留三路 left H.264 MP4、source.json、trajectory.npz；有匹配原始标定时另附 calibration.json。
+不默认导出 JPEG 帧目录、拼接视频、Parquet、原始数据副本、ZIP 或额外预览图。
+
+脚本：tools/droid_extract.py，依赖 numpy、ffmpeg；读取可选原始 HDF5 时需要 h5py。
+输入是已经选定并缓存的 TFRecord 单条 Example payload（不含 TFRecord 头尾）与来源清单。
+来源清单需保留 record_sha256、frames、timebase.video_fps、原始 episode_metadata/file_path。
+更新已有目录时同时检查 source.json 中的视频 SHA256，保留原视频字节；新目录会生成三路视频。
+选片/下载阶段仍需验证原 TFRecord CRC32C，本脚本以来源清单中的 payload SHA256 验证输入。
+
+补充或重新提取 test4：
+  python tools/droid_extract.py \
+    --record-example local/droid-selection/record00.example \
+    --source data/droid/DROID_s00000_r00000/source.json \
+    --out data/droid/DROID_s00000_r00000
+
+补充或重新提取 test5（已取得匹配的原始包）：
+  python tools/droid_extract.py \
+    --record-example local/droid-selection/record08.example \
+    --source data/droid/DROID_s00000_r00008/source.json \
+    --out data/droid/DROID_s00000_r00008 \
+    --raw-h5 local/droid-source-audit/trajectory.h5 \
+    --raw-metadata local/droid-source-audit/metadata_RAIL+d027f2ae+2023-10-06-09h-37m-19s.json
+
+新建目录时把 --out 改为新的 DROID_sxxxxx_rxxxxx 路径，并使用对应记录和来源清单。
+原始标定可选；没有就省略两个 --raw-* 参数，不编造标定值、不阻塞轨迹提取。
+已有 calibration.json 的目录重提取时必须继续提供原始输入，避免无意覆盖成缺失状态。
+
+建模读取：
+  import numpy as np
+  with np.load('trajectory.npz', allow_pickle=False) as data:
+      joints = data['observation.joint_position']       # (N,7)，七个实测关节角
+      gripper = data['observation.gripper_position']   # (N,1)，原始夹爪状态
+      ee = data['observation.cartesian_position']      # (N,6)，原始末端位姿
+
+各字段完整形状和类型在 source.json 的 trajectory.fields。
+observation.* 是实测值，action_dict.* 是控制指令；动画优先使用实测关节，不能把目标指令当真值。
+不在提取时归一化、转换坐标、做 IK 或修改夹爪数值；控制/建模端需按机器人定义解释字段。
+frame_index 从 0 开始，Blender 可用 frame_index+1；两组视频均为标称 15 fps。
+timestamp_s_nominal 是按帧号生成的相对秒数，不是真实采集时间戳。
+有匹配 RAW 时另外保留 raw.timestamp.* 的原字段，保留原单位/时钟，不自动对齐不同采集时钟。
+
+标定边界：
+- 必须同时匹配原录制路径、帧数、实测关节、末端和夹爪状态，否则拒绝附加。
+- calibration.json 以相机序列号保存活动相机左目的逐帧原始六维外参，腕部另保留 gripper_offset。
+- 当前支持的 RAW 附加路径只提取外参；未提取 SVO/补充数据的内参，状态明确标记 partial_extrinsics_only。
+- 保留原始数值，不直接转换到 Blender 坐标。外参精度、投影效果尚未验证。
+- RLDS exterior_1/2 与 RAW ext1/2 的对应尚未核实；video_camera_serials 对外部视频置 null，不能盲配。
+- 腕部相机外参逐帧变化；补齐内参后还需处理视频分辨率缩放、坐标和时间对齐。
+
+旧 local/droid-selection/package.py 的大量附加产物布局已弃用，后续使用本脚本。

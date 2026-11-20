@@ -13,7 +13,7 @@ import math
 
 import numpy as np
 
-from common import inv
+from common import inv, quat_wxyz
 
 POS_TOL, ROT_TOL = 0.005, math.radians(5)
 RADII = (0.35, 0.45, 0.55, 0.65)
@@ -61,12 +61,13 @@ class IK:
     # 早期实现手写了球/胶囊/圆柱/方盒/mesh 的最低点计算，连修 4 个 bug 仍不准确
     # （坐标系、size 语义、障碍物变换、mesh 被跳过），而 MuJoCo 本来就有精确的 GJK/EPA 碰撞。
     # 这里给 IK 模型临时拼一个「桌面 + 障碍物」的世界，用 mj_forward 后的 ncon/dist 判定。
-    def collision_model(self, table, floor_z, obstacles=()):
+    def collision_model(self, table, floor_z, obstacles=(), static_boxes=()):
         """返回 (model, data, robot_geoms) —— 带桌面/地面/障碍物碰撞体的可判碰模型（缓存）。"""
         key = (round(table["top_z"], 5), round(table["center_xy"][0], 5), round(table["center_xy"][1], 5),
                round(table["yaw_rad"], 5), round(table["size_xy"][0], 5), round(table["size_xy"][1], 5),
                round(floor_z, 5), tuple((round(o[0], 4), round(o[1], 4), round(o[2], 4),
-                                         round(o[3], 4), round(o[4], 4)) for o in obstacles))
+                                         round(o[3], 4), round(o[4], 4)) for o in obstacles),
+               tuple(tuple(round(float(v), 6) for v in box) for box in static_boxes))
         if getattr(self, "_cm_key", None) == key:
             return self._cm
         import mujoco
@@ -88,19 +89,22 @@ class IK:
             ob = wb.add_body(name=f"_obs{i}", pos=[ox, oy, (ozlo + ozhi) / 2])
             ob.add_geom(name=f"_obs{i}_g", type=mujoco.mjtGeom.mjGEOM_CYLINDER,
                         size=[orad, max((ozhi - ozlo) / 2, 1e-3), 0])
+        for i, box in enumerate(static_boxes):
+            ob = wb.add_body(name=f"_static{i}", pos=box[:3], quat=box[6:10])
+            ob.add_geom(name=f"_static{i}_g", type=mujoco.mjtGeom.mjGEOM_BOX, size=box[3:6])
         m = sp.compile()
         d = mujoco.MjData(m)
         prefix = ("link", "xarm_gripper", "left_", "right_") if self.robot == "xarm7" \
-            else ("link", "gripper", "attachment")
+            else ("link", "gripper", "g_", "attachment")
         rg = [g for g in range(m.ngeom)
               if (m.body(m.geom_bodyid[g]).name or "").startswith(prefix)]
         self._cm_key, self._cm = key, (m, d, rg)
         return self._cm
 
-    def penetration(self, q, table, floor_z, margin=0.0, obstacles=()):
+    def penetration(self, q, table, floor_z, margin=0.0, obstacles=(), static_boxes=()):
         """机器人几何体与桌面/地面/障碍物的最深侵入（米，正 = 侵入）。用 MuJoCo 精确碰撞。"""
         import mujoco
-        m, d, rg = self.collision_model(table, floor_z, obstacles)
+        m, d, rg = self.collision_model(table, floor_z, obstacles, static_boxes)
         qa = [int(m.joint(f"joint{i}").dofadr[0]) for i in range(1, 8)]
         d.qpos[qa] = q
         mujoco.mj_forward(m, d)
@@ -206,6 +210,17 @@ def _table_in_base(table, floor_z, Tb):
             float(bottom))
 
 
+def _static_in_base(scene, Tb):
+    """Use the same oriented background boxes as the final simulation."""
+    Ti = inv(Tb)
+    boxes = []
+    for st in scene.get("static", []):
+        center = Ti @ np.array([*st["center"], 1.0])
+        R = Ti[:3, :3] @ np.asarray(st["R"])
+        boxes.append(tuple([*center[:3], *st["half"], *quat_wxyz(R)]))
+    return boxes
+
+
 def _base_T(xy, z, yaw):
     T = np.eye(4)
     c, s = math.cos(yaw), math.sin(yaw)
@@ -276,10 +291,13 @@ def retarget(ee_world, scene, cfg, D, moved=()):
         sub = np.linspace(0, len(ee_world) - 1, _SUB_MAX).astype(int)
     # 用「无碰撞帧数」而不是「最深侵入」当首要排序：只有少数帧撞桌时，回放照样会被那几帧顶住。
     scored = []
-    for Tb, tier in cands:
+    if not cands:
+        raise ValueError("No robot-base candidates clear the scene; provide robot_base in config")
+    for ci, (Tb, tier) in enumerate(cands):
         Ti = inv(Tb)
         _tb_base, _floor_base = _table_in_base(scene["table"], floor, Tb)
         _obs = _obstacles_in_base(scene, Tb, moved)
+        _boxes = _static_in_base(scene, Tb)
         q, ep, er = _track(ik, [Ti @ ee_world[t] for t in sub], ik.home)
         reach = float(np.mean((ep < POS_TOL) & (er < ROT_TOL)))
         margin = float(np.min(np.minimum(q - ik.lim[:, 0], ik.lim[:, 1] - q)))
@@ -287,7 +305,7 @@ def retarget(ee_world, scene, cfg, D, moved=()):
         pen = 0.0
         n_hit = 0
         for k in range(len(sub)):
-            p = ik.penetration(q[k], _tb_base, _floor_base, obstacles=_obs)
+            p = ik.penetration(q[k], _tb_base, _floor_base, obstacles=_obs, static_boxes=_boxes)
             pen = max(pen, p)
             if p > 0.005:
                 n_hit += 1
@@ -297,7 +315,9 @@ def retarget(ee_world, scene, cfg, D, moved=()):
         #   只看可达 → 钻进桌子；只看无碰撞 → 够不着轨迹（338 帧 IK 失败）。
         ok = (n_hit == 0) and (reach >= 0.999) and (tau < 0.9)
         scored.append((1 if ok else 0, -n_hit, -pen, tau, reach, tier, margin, Tb))
-    scored.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4], x[5], x[6]), reverse=True)
+        if (ci + 1) % 6 == 0 or ci + 1 == len(cands):
+            print(f"   base search {ci + 1}/{len(cands)}; qualified {sum(s[0] for s in scored)}", flush=True)
+    scored.sort(key=lambda x: (x[0], x[1], x[2], -x[3], x[4], x[5], x[6]), reverse=True)
     ok, _nh, _negpen, tau, reach, _tier, margin, Tb = scored[0]
     pen = -_negpen
     n_hit = -_nh
@@ -316,8 +336,9 @@ def retarget(ee_world, scene, cfg, D, moved=()):
     bad_pen = []
     _tb_base, _floor_base = _table_in_base(scene["table"], floor, Tb)
     _obs = _obstacles_in_base(scene, Tb, moved)
+    _boxes = _static_in_base(scene, Tb)
     for t in range(len(q)):
-        p = ik.penetration(q[t], _tb_base, _floor_base, obstacles=_obs)
+        p = ik.penetration(q[t], _tb_base, _floor_base, obstacles=_obs, static_boxes=_boxes)
         if p > 0.005:
             bad_pen.append(int(t))
         pen_full = max(pen_full, p)

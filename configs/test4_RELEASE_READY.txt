@@ -1,0 +1,34 @@
+test4 公共目录发布完成 | 2026-11-20
+================================
+齐套目录：outputs/test4-release-ready/
+入口：9004 → 8094，当前加载此包的 interactive/scene。
+状态：已发布到 /root/data/simulation/DROID-蓝色圆环放入木托盘-test4。
+发布后335个文件哈希、浏览器报告和高清视频来源复核通过，与本地齐套包一致；未推送GitHub。
+发布复核记录：local/test4-publication.json。
+
+文件：
+- preview.html、mujoco-web3d-*.glb/json：浏览器展示回放（先启动HTTP服务）。
+- interactive-environment.tar.gz、interactive/：可迁移实时MuJoCo环境。
+- blender-hd/blender-hd.mp4：1080p、30fps、64samples、OptiX，592帧/19.733333秒。
+- registration-report.json：整体/局部配准告警和原始轨迹约束下的位置对照。
+- initialization-report.json：原初态失败、显式归位修正与新V1/V2结果。
+- SCENE_NOTES.txt、validation.json、browser-validation.json、provenance.json、checksums.json。
+
+候选：runs/test4-release-v2；源关节与夹爪指令未改。
+整体任务区域在Blender世界X约-30.2mm位置修正后，按3秒物理静置结果显式修正初态。
+新V1最大峰值0.04347mm、最深接触-0.05526mm；原始284帧DROID回放成功。
+独立目录迁移、原生XML一致性、实际浏览器/重置/Blender三路、视频及全包哈希已通过。
+未宣称相机标定、所有随机初态可解或策略训练完成；质量/场景尺寸等估计见随包说明。
+
+本次公共发布使用的命令（已执行；目标已存在，不要重复执行）：
+ source local/env.sh
+ .venv/bin/python tools/r2pear/export_assets/publish.py \
+   --bundle outputs/test4-release-ready \
+   --browser-report outputs/test4-release-ready/browser-validation.json \
+   --destination /root/data/simulation/DROID-蓝色圆环放入木托盘-test4
+高清已包含在包内，发布器会再次核验来源、浏览器归档哈希并原子写入新目录。
+
+复现初态修正：
+ .venv/bin/python tools/r2pear/experiments/prepare_release_initial.py \
+   --source runs/test4-registration-preview --out <新目录>
+配准检查在b2s/run.py输入阶段自动执行，阈值和规则见AGENTS.md与b2s/README.md。

@@ -1,0 +1,44 @@
+五个test：真实视频与Blender HD左右对比 | 2026-11-20
+==================================================
+已在/root/data/simulation/下五个test目录分别补齐：
+ compare.mp4、compare-poster.png、compare-report.json、COMPARE_README.txt。
+统一1920×640、30fps、H264/yuv420p/faststart、无音轨；左右各960×540，顶部100像素标注。
+左真实、右既有Blender HD，保持宽高比；没有重新仿真、重渲染或改变现有HD视频。
+
+来源与对齐：
+- test1：本机未找到独立原视频；使用仓库evidence/test1/sim/stage1_validate/compare_agentview.mp4
+  的真实左面板crop(0,0,512,288)。172帧/15fps，源是DROID ep71 exterior_1_left。
+  来源为既有V3证据的真实面板，含二次编码，不是原始无损视频；说明和源文件哈希已随包记录。
+- test2：用户提供data/umi/wrist_camera_ep68.mp4，924帧、224×224、容器30fps。
+  保存data/umi/source.json哈希收据；原采集帧率仍沿用既有提取记录的30fps假设。
+  根据demo.trim_failed_attempt记录丢弃前683帧，保留第684～924帧，共241帧。
+  保留鱼眼完整画面与方形比例，不去畸变；右侧既有export_view总览，相机不同已显式标注。
+- test3：官方EgoDex basic_pick_place/1.mp4，160帧/30fps，SHA256与原下载收据一致。
+  示范执行10fps，左侧随状态对应变为三倍慢速；右侧固定总览，左侧头戴相机，不是同机位标定对比。
+- test4：data/droid/DROID_s00000_r00000/exterior_1_left.mp4，284帧/15fps。
+  source.json视频哈希核对通过；右侧为已有export_view总览，明确标注不同视角。
+- test5：data/droid/DROID_s00000_r00008/exterior_1_left.mp4，125帧/15fps。
+  source.json视频哈希核对通过；右侧agentview对应外部一路，但仍为近似相机。
+
+逐帧规则：
+- 读取HD render-report.json的source_indices_per_video_frame，再映射到保留的真实帧。
+- source_index = source_frame_offset + min(HD_state_index, demo_frames - 1)。
+- 不按两段视频的总时长缩放；MuJoCo子步量化、EgoDex慢速和已裁剪前缀都保留。
+- 仿真末尾继续静置时真实视频末帧定格，并在画面注明。对齐表示帧对应，不表示动作/相机精确复现。
+- 真实低分辨率画面放大不增加细节，UMI/EgoDex直接原始控制分支等原场景限制仍适用。
+
+时长：test1 12.333333s/370帧；test2 9.2s/276帧；test3 16.933333s/508帧；
+      test4 19.733333s/592帧；test5 9.233333s/277帧，均与各自既有HD的帧数/帧率相同。
+验收：首帧及中段对比画面已检查；ffprobe、全片解码、源视频与HD/物理轨迹哈希、逐帧映射均通过。
+公共补充后检查217/217/219/339/477个文件，原有文件逐个哈希不变（仅checksums.json扩充）。
+证据：local/compare-publication-audit.json，local/compare-publication-plan.json，outputs/testN-compare/。
+
+流程：
+- tools/r2pear/render_compare_video.py负责生成及核验；命令说明见export_assets/README.txt。
+- export_assets/publish_compare.py仅给旧包追加四个文件并扩展校验清单，拒绝覆盖已有compare。
+- 新场景publish.py要求compare文件齐全且绑定同一HD/轨迹；通过--compare-dir指定，
+  或输入包本身已带compare。缺失或来源不符会拒绝发布。AGENTS.md同步此要求。
+- test4/5的旧本地release-ready快照未追加compare；重新发布时须带--compare-dir outputs/testN-compare，
+  或使用现在带compare的公共完整包。不要把旧快照没有compare误认为公共包漏发。
+- 20项相关导出/视频/发布回归通过，包括裁剪、慢速、末帧定格、来源不符拒绝、旧文件不改及拒绝覆盖。
+- 无需重启WebUI；本轮未改变服务、原始场景、回放或已有高清视频。尚未提交或推送GitHub。

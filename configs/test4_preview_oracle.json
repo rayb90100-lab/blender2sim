@@ -1,0 +1,18 @@
+{
+  "purpose": "test4 网页 oracle 的人工指定抓取/放置点；不修改或替代原始 DROID 轨迹",
+  "object_overrides": {
+    "blue_ring": {
+      "grasp_offset_local_m": [0.0, -0.04, 0.0],
+      "grasp_z_min_cm": 1.5
+    },
+    "tray_floor": {
+      "place_offset_local_m": [-0.07, -0.06, 0.0]
+    }
+  },
+  "notes": [
+    "抓取点位于环壁侧，夹合方向沿局部 y；高度需考虑 Robotiq 指垫闭合时的前伸补偿。",
+    "放置点位于托盘空位，避开橙环；偏移使用各自 MuJoCo body 局部坐标，单位米。",
+    "放置时按抬升后实际工具到物体的变换补偿偏心抓取。",
+    "仅验证当前初态，未做随机初态验收；其他陪衬物仍是实验阶段简化碰撞。"
+  ]
+}

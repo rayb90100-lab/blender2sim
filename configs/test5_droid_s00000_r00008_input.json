@@ -1,0 +1,86 @@
+{
+  "task_id": "test5_droid_s00000_r00008_input",
+  "instruction": "将红甜椒从金属浅盘中拿起，放到桌面。",
+  "embodiment": {
+    "type": "robot_arm",
+    "representation": "object_joints",
+    "base": "机器人基坐标 · 原点",
+    "flange": "法兰 · 实测位姿校核",
+    "chain": [
+      "Panda · J1 连杆",
+      "Panda · J2 连杆",
+      "Panda · J3 连杆",
+      "Panda · J4 连杆",
+      "Panda · J5 连杆",
+      "Panda · J6 连杆",
+      "Panda · J7 连杆"
+    ],
+    "gripper_property": {
+      "object": "执行器 · 夹指系",
+      "property": "measured_closure"
+    }
+  },
+  "droid_trajectory": "data/droid/DROID_s00000_r00008/trajectory.npz",
+  "table": "木工作台 · 圆角细木纹台面",
+  "objects": [
+    "红甜椒 · 四瓣果身",
+    "不锈钢浅盘 · 旋压盘身和卷边",
+    "小红果 · 果身",
+    "圆形小物 · 棕色外壁"
+  ],
+  "object_names": {
+    "红甜椒 · 四瓣果身": "red_pepper",
+    "不锈钢浅盘 · 旋压盘身和卷边": "metal_plate",
+    "小红果 · 果身": "small_fruit",
+    "圆形小物 · 棕色外壁": "brown_item"
+  },
+  "visual_roots": {
+    "红甜椒 · 四瓣果身": "红甜椒 · 运动中心",
+    "小红果 · 果身": "桌面小红果",
+    "圆形小物 · 棕色外壁": "棕色圆形小物"
+  },
+  "exclude": [
+    "不锈钢浅盘 · 双线环柄",
+    "不锈钢浅盘 · 点焊",
+    "不锈钢浅盘 · 点焊.001",
+    "小物 · 彩色表面细节",
+    "小物 · 彩色表面细节.001",
+    "小物 · 彩色表面细节.002",
+    "小物 · 彩色表面细节.003",
+    "小物 · 彩色表面细节.004",
+    "小物 · 彩色表面细节.005",
+    "小物 · 彩色表面细节.006",
+    "小物 · 彩色表面细节.007",
+    "小物 · 彩色表面细节.008",
+    "小红果 · 梗",
+    "甜椒 · 短弯果柄",
+    "甜椒 · 萼片",
+    "甜椒 · 萼片.001",
+    "甜椒 · 萼片.002",
+    "甜椒 · 萼片.003",
+    "甜椒 · 萼片.004"
+  ],
+  "registration": {
+    "global_warn_mm": 5,
+    "global_warn_deg": 2,
+    "grasp_warn_mm": 5,
+    "relative_ratio": 3,
+    "grasp_point_in_flange_m": [
+      -0.01981832848936319,
+      0.008814767578653872,
+      0.13415820335735937
+    ],
+    "grasp_reference_grade": "authored_two_pad_centres_midpoint_not_calibrated"
+  },
+  "success": [
+    {
+      "pred": "on",
+      "obj": "red_pepper",
+      "support": "table"
+    },
+    {
+      "pred": "released",
+      "obj": "red_pepper"
+    }
+  ]
+}
